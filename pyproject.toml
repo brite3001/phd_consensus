@@ -1,0 +1,18 @@
+[project]
+name = ""
+version = ""
+description = ""
+authors = [
+    {name = "brite3000", email = "zac@auhl.dev"},
+]
+dependencies = [
+    "attrs>=23.1.0",
+    "pytest>=7.4.3",
+    "aiozmq>=1.0.0",
+    "async-timeout>=4.0.3",
+    "pyzmq>=25.1.1",
+]
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+
