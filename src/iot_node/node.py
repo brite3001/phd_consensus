@@ -26,25 +26,33 @@ class Node:
 
         print(f"[{self.id}] Started PUB/SUB Sockets")
 
-    async def inbox(self):
-        pass
-        # deal with received messages from gossip and router here...
+    async def inbox(self, message, topic=None):
+        if topic != None:
+            print("Received Published Message")
+            print(f"{message} / {topic}")
+        else:
+            print("Received Direct Message")
+            print(message)
 
-    async def router_event_loop(self):
+    async def router_listener(self):
         print(f"{[self.id]} Starting Router")
         router = await aiozmq.create_zmq_stream(zmq.ROUTER, bind=self.router_bind)
 
         while True:
-            msg = await router.read()
-            msg = json.loads(msg[2].decode())
-            print(f"Received message {msg}")
+            message = await router.read()
+            message = json.loads(message[2].decode())
+            asyncio.create_task(self.inbox(message))
 
-    async def subscriber_event_loop(self):
-        print(f"[{id}] Starting Subscriber")
+    async def subscriber_listener(self):
+        print(f"[{self.id}] Starting Subscriber")
 
         while True:
-            msg = await self._subscriber.read()
-            print(f"Received message from publisher: {msg}")
+            message = await self._subscriber.read()
+            topic, message = message
+
+            asyncio.create_task(
+                self.inbox(json.loads(message.decode()), topic.decode())
+            )
 
     async def publish(self, command_obj: PublishMessage):
         message = json.dumps(command_obj.message).encode("utf-8")
@@ -72,5 +80,5 @@ class Node:
             asyncio.create_task(self.publish(command_obj))
 
     async def start(self):
-        asyncio.create_task(self.router_event_loop())
-        asyncio.create_task(self.subscriber_event_loop())
+        asyncio.create_task(self.router_listener())
+        asyncio.create_task(self.subscriber_listener())
