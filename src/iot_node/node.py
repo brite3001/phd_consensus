@@ -17,22 +17,30 @@ class Node:
 
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
     _publisher: aiozmq.stream.ZmqStream = field(init=False)
+    _router: aiozmq.stream.ZmqStream = field(init=False)
 
     received_messages: dict = field(factory=dict)
+    running: bool = True
 
+    ####################
+    # Inbox            #
+    ####################
     async def inbox(self, message):
         print("Received Message")
         print(message)
+        self.received_messages[hash(message)] = message
 
     ####################
     # Listeners        #
     ####################
     async def router_listener(self):
         print(f"[{self.id}] Starting Router")
-        router = await aiozmq.create_zmq_stream(zmq.ROUTER, bind=self.router_bind)
 
         while True:
-            message = await router.read()
+            if self.running == False:
+                break
+
+            message = await self._router.read()
             message = json.loads(message[2].decode())
 
             if message["message_type"] == "DirectMessage":
@@ -46,6 +54,9 @@ class Node:
         print(f"[{self.id}] Starting Subscriber")
 
         while True:
+            if self.running == False:
+                break
+
             message = await self._subscriber.read()
             _, message = message
             message = json.loads(message.decode())
@@ -64,10 +75,12 @@ class Node:
         message = json.dumps(asdict(pm)).encode()
         self._publisher.write([pm.topic.encode(), message])
 
-    async def direct_message(self, dm: DirectMessage):
-        req = await aiozmq.create_zmq_stream(zmq.REQ)
+    async def direct_message(self, dm: DirectMessage, receiver: str):
+        if receiver is None:
+            raise Exception("Missing receiver in direct_message call!!!")
 
-        await req.transport.connect(dm.receiver)
+        req = await aiozmq.create_zmq_stream(zmq.REQ)
+        await req.transport.connect(receiver)
         message = json.dumps(asdict(dm)).encode()
 
         req.write([message])
@@ -81,21 +94,28 @@ class Node:
 
         print(f"[{self.id}] Successfully subscribed to {s2p.publisher}")
 
-    async def init_pub_sub(self):
+    async def init_sockets(self):
         self._subscriber = await aiozmq.create_zmq_stream(zmq.SUB)
         self._publisher = await aiozmq.create_zmq_stream(
             zmq.PUB, bind=self.publisher_bind
         )
+        self._router = await aiozmq.create_zmq_stream(zmq.ROUTER, bind=self.router_bind)
 
         print(f"[{self.id}] Started PUB/SUB Sockets")
 
-    def command(self, command_obj):
+    def command(self, command_obj, receiver=None):
         if isinstance(command_obj, DirectMessage):
-            asyncio.create_task(self.direct_message(command_obj))
+            asyncio.create_task(self.direct_message(command_obj, receiver))
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
         if type(command_obj) == PublishMessage:
             asyncio.create_task(self.publish(command_obj))
+
+    def stop(self):
+        self.running = False
+        self._publisher.close()
+        self._subscriber.close()
+        self._router.close()
 
     async def start(self):
         asyncio.create_task(self.router_listener())

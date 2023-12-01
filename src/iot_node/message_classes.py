@@ -1,4 +1,4 @@
-from attrs import frozen, field, validators
+from attrs import frozen, field, validators, define
 
 
 @frozen
@@ -6,7 +6,6 @@ class DirectMessage:
     sender: str = field(validator=[validators.instance_of(str)])
     message: str = field(validator=[validators.instance_of(str)])
     message_type: str = field(validator=[validators.instance_of(str)])
-    receiver: str = field(validator=[validators.instance_of(str)])
 
 
 @frozen

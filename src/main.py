@@ -19,18 +19,18 @@ async def main():
     n1 = Node(
         id="node_one",
         router_bind="tcp://127.0.0.1:20001",
-        publisher_bind="tcp://127.0.0.1:21002",
+        publisher_bind="tcp://127.0.0.1:21001",
     )
     n2 = Node(
         id="node_two",
         router_bind="tcp://127.0.0.1:20002",
-        publisher_bind="tcp://127.0.0.1:21001",
+        publisher_bind="tcp://127.0.0.1:21002",
     )
 
-    await n1.init_pub_sub()
+    await n1.init_sockets()
     await n1.start()
 
-    await n2.init_pub_sub()
+    await n2.init_sockets()
     await n2.start()
 
     sub = SubscribeToPublisher("tcp://127.0.0.1:21002", "yolo")
@@ -41,14 +41,15 @@ async def main():
             sender=n1.id,
             message="Hello!!!",
             message_type="DirectMessage",
-            receiver="tcp://127.0.0.1:20002",
         )
-        n1.command(dm)
+        n1.command(dm, "tcp://127.0.0.1:20002")
         await asyncio.sleep(5)
 
-        pub = PublishMessage(n1.id, "Testing Da Publish", "PublishMessage", "yolo")
-        n1.command(pub)
+        pub = PublishMessage(n2.id, "Testing Da Publish", "PublishMessage", "yolo")
+        n2.command(pub)
         await asyncio.sleep(5)
+
+        print(n2.received_messages)
 
 
 async def shutdown(signal, loop):
