@@ -3,9 +3,9 @@ import signal
 import logging
 
 from iot_node.node import Node
-from iot_node.commad_arg_classes import DirectMessage
-from iot_node.commad_arg_classes import PublishMessage
 from iot_node.commad_arg_classes import SubscribeToPublisher
+from iot_node.message_classes import DirectMessage
+from iot_node.message_classes import PublishMessage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,14 +28,13 @@ async def shutdown(signal, loop):
 
 
 async def main():
-    print("hello")
     n1 = Node(
-        id=1,
+        id="node_one",
         router_bind="tcp://127.0.0.1:20001",
         publisher_bind="tcp://127.0.0.1:21002",
     )
     n2 = Node(
-        id=2,
+        id="node_two",
         router_bind="tcp://127.0.0.1:20002",
         publisher_bind="tcp://127.0.0.1:21001",
     )
@@ -46,15 +45,20 @@ async def main():
     await n2.init_pub_sub()
     await n2.start()
 
-    sub = SubscribeToPublisher("tcp://127.0.0.1:21002", b"a")
+    sub = SubscribeToPublisher("tcp://127.0.0.1:21002", "yolo")
     n1.command(sub)
 
     while True:
-        dm = DirectMessage("tcp://127.0.0.1:20002", {"message": "dirreeeeccctttt"})
+        dm = DirectMessage(
+            sender=n1.id,
+            message="Hello!!!",
+            message_type="DirectMessage",
+            receiver="tcp://127.0.0.1:20002",
+        )
         n1.command(dm)
         await asyncio.sleep(5)
 
-        pub = PublishMessage({"message": "pubbblliiissshhh"}, b"a")
+        pub = PublishMessage(n1.id, "Testing Da Publish", "PublishMessage", "yolo")
         n1.command(pub)
         await asyncio.sleep(5)
 
