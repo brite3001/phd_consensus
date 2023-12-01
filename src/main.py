@@ -1,6 +1,7 @@
 import asyncio
 import signal
 import logging
+import uvloop
 
 from iot_node.node import Node
 from iot_node.commad_arg_classes import SubscribeToPublisher
@@ -12,19 +13,6 @@ logging.basicConfig(
     format="%(asctime)s,%(msecs)d %(levelname)s: %(message)s",
     datefmt="%H:%M:%S",
 )
-
-
-async def shutdown(signal, loop):
-    logging.info(f"Received exit signal {signal.name}...")
-
-    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-
-    for task in tasks:
-        task.cancel()
-
-    logging.info("Cancelling outstanding tasks")
-    await asyncio.gather(*tasks, return_exceptions=True)
-    loop.stop()
 
 
 async def main():
@@ -63,8 +51,22 @@ async def main():
         await asyncio.sleep(5)
 
 
+async def shutdown(signal, loop):
+    logging.info(f"Received exit signal {signal.name}...")
+
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+
+    for task in tasks:
+        task.cancel()
+
+    logging.info("Cancelling outstanding tasks")
+    await asyncio.gather(*tasks, return_exceptions=True)
+    loop.stop()
+
+
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
     for s in signals:
