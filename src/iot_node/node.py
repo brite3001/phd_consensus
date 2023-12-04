@@ -6,6 +6,8 @@ import json
 
 from .message_classes import DirectMessage
 from .message_classes import PublishMessage
+from .message_classes import MessageMetaData
+from .message_classes import MessageSignatures
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 
@@ -26,9 +28,10 @@ class Node:
     ####################
     # Inbox            #
     ####################
-    async def inbox(self, message):
+    async def inbox(self, message, meta_data: MessageMetaData):
         print(f"[{self.id}] Received Message")
         print(f"[{self.id}] {message}")
+        print(meta_data)
         self.received_messages[hash(message)] = message
 
     ####################
@@ -41,15 +44,17 @@ class Node:
             if self.running == False:
                 break
 
-            message = await self._router.read()
-            message = json.loads(message[2].decode())
+            recv = await self._router.read()
+
+            message = json.loads(recv[2].decode())
+            meta_data = json.loads(recv[3].decode())
 
             if message["message_type"] == "DirectMessage":
                 message = DirectMessage(**message)
             else:
                 print("Couldnt find matching class for message!!")
 
-            asyncio.create_task(self.inbox(message))
+            asyncio.create_task(self.inbox(message, meta_data))
 
     async def subscriber_listener(self):
         print(f"[{self.id}] Starting Subscriber")
@@ -58,45 +63,54 @@ class Node:
             if self.running == False:
                 break
 
-            message = await self._subscriber.read()
-            _, message = message
+            recv = await self._subscriber.read()
+
+            topic, message, meta_data = recv
             message = json.loads(message.decode())
+            meta_data = json.loads(meta_data.decode())
 
             if message["message_type"] == "PublishMessage":
                 message = PublishMessage(**message)
             else:
                 print("Couldnt find matching class for message!!")
 
-            asyncio.create_task(self.inbox(message))
+            meta_data = MessageMetaData(**meta_data)
+
+            asyncio.create_task(self.inbox(message, meta_data))
 
     ####################
     # Message Sending  #
     ####################
-    async def publish(self, pub: PublishMessage):
+    async def publish(self, pub: PublishMessage, meta_data: MessageMetaData):
         message = json.dumps(asdict(pub)).encode()
-        self._publisher.write([pub.topic.encode(), message])
+        meta_data = json.dumps(asdict(meta_data)).encode()
+
+        self._publisher.write([pub.topic.encode(), message, meta_data])
         print(f"[{self.id}] Published Message {hash(pub)}")
 
-    async def direct_message(self, dm: DirectMessage, receiver: str):
+    async def direct_message(
+        self, message: DirectMessage, meta_data: MessageMetaData, receiver: str
+    ):
         if receiver is None:
             raise Exception("Missing receiver in direct_message call!!!")
 
         req = await aiozmq.create_zmq_stream(zmq.REQ)
         await req.transport.connect(receiver)
-        message = json.dumps(asdict(dm)).encode()
+        message = json.dumps(asdict(message)).encode()
+        meta_data = json.dumps(asdict(meta_data)).encode()
 
-        req.write([message])
+        req.write([message, meta_data])
 
     ####################
     # Node 'API'       #
     ####################
-    def command(self, command_obj, receiver=None):
+    def command(self, command_obj, meta_data=None, receiver=None):
         if isinstance(command_obj, DirectMessage):
-            asyncio.create_task(self.direct_message(command_obj, receiver))
+            asyncio.create_task(self.direct_message(command_obj, meta_data, receiver))
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
         if isinstance(command_obj, PublishMessage):
-            asyncio.create_task(self.publish(command_obj))
+            asyncio.create_task(self.publish(command_obj, meta_data))
         if isinstance(command_obj, UnsubscribeFromTopic):
             asyncio.create_task(self.unsubscribe(command_obj))
 
