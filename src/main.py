@@ -33,23 +33,33 @@ async def main():
     await n2.init_sockets()
     await n2.start()
 
-    sub = SubscribeToPublisher("tcp://127.0.0.1:21002", "yolo")
-    n1.command(sub)
+    sub = SubscribeToPublisher("tcp://127.0.0.1:21001", "yolo")
+    n2.command(sub)
 
     while True:
         dm = DirectMessage(
-            sender=n1.id,
+            creator=n1.id,
             message="Hello!!!",
             message_type="DirectMessage",
         )
-        n1.command(dm, "tcp://127.0.0.1:20002")
-        await asyncio.sleep(5)
 
-        pub = PublishMessage(n2.id, "Testing Da Publish", "PublishMessage", "yolo")
-        n2.command(pub)
-        await asyncio.sleep(5)
+        print(hash(dm))
+
+        n1.command(dm, "tcp://127.0.0.1:20002")
+        await asyncio.sleep(1)
+
+        pub = PublishMessage(
+            creator=n1.id,
+            message="Testing Da Publish",
+            message_type="PublishMessage",
+            topic="yolo",
+        )
+        print(hash(pub))
+        n1.command(pub)
+        await asyncio.sleep(1)
 
         print(n2.received_messages)
+        await asyncio.sleep(5)
 
 
 async def shutdown(signal, loop):

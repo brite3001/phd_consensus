@@ -9,3 +9,8 @@ def str_to_bytes(x: str) -> bytes:
 class SubscribeToPublisher:
     publisher: str = field(validator=[validators.instance_of(str)])
     topic: bytes = field(converter=str_to_bytes)
+
+
+@frozen
+class UnsubscribeFromTopic:
+    topic: bytes = field(converter=str_to_bytes)

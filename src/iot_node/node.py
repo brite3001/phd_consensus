@@ -7,6 +7,7 @@ import json
 from .message_classes import DirectMessage
 from .message_classes import PublishMessage
 from .commad_arg_classes import SubscribeToPublisher
+from .commad_arg_classes import UnsubscribeFromTopic
 
 
 @define
@@ -26,8 +27,8 @@ class Node:
     # Inbox            #
     ####################
     async def inbox(self, message):
-        print("Received Message")
-        print(message)
+        print(f"[{self.id}] Received Message")
+        print(f"[{self.id}] {message}")
         self.received_messages[hash(message)] = message
 
     ####################
@@ -71,9 +72,10 @@ class Node:
     ####################
     # Message Sending  #
     ####################
-    async def publish(self, pm: PublishMessage):
-        message = json.dumps(asdict(pm)).encode()
-        self._publisher.write([pm.topic.encode(), message])
+    async def publish(self, pub: PublishMessage):
+        message = json.dumps(asdict(pub)).encode()
+        self._publisher.write([pub.topic.encode(), message])
+        print(f"[{self.id}] Published Message {hash(pub)}")
 
     async def direct_message(self, dm: DirectMessage, receiver: str):
         if receiver is None:
@@ -86,6 +88,19 @@ class Node:
         req.write([message])
 
     ####################
+    # Node 'API'       #
+    ####################
+    def command(self, command_obj, receiver=None):
+        if isinstance(command_obj, DirectMessage):
+            asyncio.create_task(self.direct_message(command_obj, receiver))
+        if isinstance(command_obj, SubscribeToPublisher):
+            asyncio.create_task(self.subscribe(command_obj))
+        if isinstance(command_obj, PublishMessage):
+            asyncio.create_task(self.publish(command_obj))
+        if isinstance(command_obj, UnsubscribeFromTopic):
+            asyncio.create_task(self.unsubscribe(command_obj))
+
+    ####################
     # Helper Functions #
     ####################
     async def subscribe(self, s2p: SubscribeToPublisher):
@@ -93,6 +108,9 @@ class Node:
         self._subscriber.transport.subscribe(s2p.topic)
 
         print(f"[{self.id}] Successfully subscribed to {s2p.publisher}")
+
+    async def unsubscribe(self, unsub: UnsubscribeFromTopic):
+        self._subscriber.transport.unsubscribe(unsub.topic)
 
     async def init_sockets(self):
         self._subscriber = await aiozmq.create_zmq_stream(zmq.SUB)
@@ -102,14 +120,6 @@ class Node:
         self._router = await aiozmq.create_zmq_stream(zmq.ROUTER, bind=self.router_bind)
 
         print(f"[{self.id}] Started PUB/SUB Sockets")
-
-    def command(self, command_obj, receiver=None):
-        if isinstance(command_obj, DirectMessage):
-            asyncio.create_task(self.direct_message(command_obj, receiver))
-        if isinstance(command_obj, SubscribeToPublisher):
-            asyncio.create_task(self.subscribe(command_obj))
-        if type(command_obj) == PublishMessage:
-            asyncio.create_task(self.publish(command_obj))
 
     def stop(self):
         self.running = False
