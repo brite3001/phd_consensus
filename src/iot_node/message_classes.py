@@ -2,6 +2,11 @@ from attrs import frozen, field, validators, asdict, define
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from typing import List
 import json
+import base64
+
+
+def bytes_to_base64(x: bytes) -> str:
+    return base64.b64encode(x).decode("utf-8")
 
 
 @frozen
@@ -12,14 +17,14 @@ class MessageSignatures:
 
 @frozen
 class DirectMessage:
-    creator: str = field(validator=[validators.instance_of(str)])
+    creator: str = field(converter=bytes_to_base64)
     message: str = field(validator=[validators.instance_of(str)])
     message_type: str = field(validator=[validators.instance_of(str)])
 
 
 @frozen
 class PublishMessage:
-    creator: str = field(validator=[validators.instance_of(str)])
+    creator: str = field(converter=bytes_to_base64)
     message: str = field(validator=[validators.instance_of(str)])
     message_type: str = field(validator=[validators.instance_of(str)])
     topic: str = field(validator=[validators.instance_of(str)])
@@ -27,9 +32,9 @@ class PublishMessage:
 
 @define
 class BatchMessageBuilder:
-    sender: bytes = field(validator=[validators.instance_of(bytes)])
+    sender: str = field(converter=bytes_to_base64)
     messages: List[DirectMessage] = field(factory=list)
-    aggregated_signature: list = field(factory=list)
+    aggregated_signature: str = field(init=False)
 
     batched: bool = False
 
@@ -40,12 +45,6 @@ class BatchMessageBuilder:
 
         if len(self.messages) > 1:
             self.batched = True
-
-    def add_signed_message(self, msg: DirectMessage, sigs: MessageSignatures):
-        assert isinstance(msg, DirectMessage)
-        assert isinstance(sigs, MessageSignatures)
-
-        self.aggregated_signature.append()
 
     def sign_messages(self, private_key: bytes):
         messages_as_bytes = [json.dumps(asdict(x)).encode() for x in self.messages]
@@ -61,11 +60,15 @@ class BatchMessageBuilder:
         else:
             agg_sig = sigs[0]
 
-        return agg_sig
+        self.aggregated_signature = bytes_to_base64(agg_sig)
 
-    def verify_signatures():
-        # Verify aggregate signature with different messages
-        assert bls_pop.AggregateVerify(public_keys, messages, agg_sig)
+    def verify_signatures(self) -> bool:
+        pub_keys = [base64.b64decode(x.creator) for x in self.messages]
+        messages_as_bytes = [json.dumps(asdict(x)).encode() for x in self.messages]
 
-    def get_frozen():
-        pass
+        return bls_pop.AggregateVerify(
+            pub_keys, messages_as_bytes, base64.b64decode(self.aggregated_signature)
+        )
+
+    def int_to_bytes(self, x: int) -> bytes:
+        return x.to_bytes(4, byteorder="little")

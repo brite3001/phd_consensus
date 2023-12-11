@@ -39,19 +39,28 @@ async def main():
 
     while True:
         dm = DirectMessage(
-            creator=n1.id,
+            creator=n1._public_key,
             message="Hello!!!",
             message_type="DirectMessage",
         )
         # sigs = MessageSignatures(sender_signature="aaaaa", creator_signature="bbbbb")
 
         sm = BatchMessageBuilder(n1._public_key)
+        print(n1._public_key)
 
         sm.add_msg(dm)
         sm.add_msg(dm)
         sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.sign_messages(n1._private_key)
 
-        print(sm)
+        working = sm.verify_signatures()
+        print(working)
 
         # n1.command(dm, meta, "tcp://127.0.0.1:20002")
         # await asyncio.sleep(1)
