@@ -1,4 +1,5 @@
 from attrs import frozen, field, validators
+from typing import List
 
 
 @frozen
@@ -28,10 +29,23 @@ class PublishMessage:
     topic: str = field(validator=[validators.instance_of(str)])
 
 
-# @frozen
-# class batchedMessages:
-#     batched: list = field(validator=[validators.instance_of(list)])
-#     creator_signature: str = field(validator=[validators.instance_of(str)])
+@frozen
+class SignedDirectMessages:
+    messages: List[DirectMessage] = field(factory=list)
+    signatures: List[MessageSignatures] = field(factory=list)
+    metadatas: List[MessageMetaData] = field(factory=list)
+    batched: bool = False
 
-#     def check_signature(self):
-#         pass
+    def add_msg(
+        self, msg: DirectMessage, sigs: MessageSignatures, meta: MessageMetaData
+    ):
+        assert isinstance(msg, DirectMessage)
+        assert isinstance(sigs, MessageSignatures)
+        assert isinstance(meta, MessageMetaData)
+
+        self.messages.append(msg)
+        self.signatures.append(sigs)
+        self.metadatas.append(meta)
+
+        if len(self.messages) > 1:
+            self.batched = True

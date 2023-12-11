@@ -41,7 +41,7 @@ class Node:
         print(f"[{self.id}] Starting Router")
 
         while True:
-            if self.running == False:
+            if not self.running:
                 break
 
             recv = await self._router.read()
@@ -60,7 +60,7 @@ class Node:
         print(f"[{self.id}] Starting Subscriber")
 
         while True:
-            if self.running == False:
+            if not self.running:
                 break
 
             recv = await self._subscriber.read()

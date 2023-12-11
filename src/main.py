@@ -8,6 +8,8 @@ from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.message_classes import DirectMessage
 from iot_node.message_classes import PublishMessage
 from iot_node.message_classes import MessageMetaData
+from iot_node.message_classes import MessageSignatures
+from iot_node.message_classes import SignedDirectMessages
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,28 +40,35 @@ async def main():
     n2.command(sub)
 
     while True:
-        # dm = DirectMessage(
-        #     creator=n1.id,
-        #     message="Hello!!!",
-        #     message_type="DirectMessage",
-        # )
-        # meta = MessageMetaData(batched=False, sender=n1.id)
+        dm = DirectMessage(
+            creator=n1.id,
+            message="Hello!!!",
+            message_type="DirectMessage",
+        )
+        meta = MessageMetaData(batched=False, sender=n1.id)
+        sigs = MessageSignatures("aaaaa", "bbbbb")
+
+        sm = SignedDirectMessages()
+
+        sm.add_msg(dm, sigs, meta)
+
+        print(sm)
 
         # n1.command(dm, meta, "tcp://127.0.0.1:20002")
         # await asyncio.sleep(1)
 
-        pub = PublishMessage(
-            creator=n1.id,
-            message="Testing Da Publish",
-            message_type="PublishMessage",
-            topic="yolo",
-        )
-        meta = MessageMetaData(batched=False, sender=n1.id)
-        n1.command(pub, meta)
-        await asyncio.sleep(1)
+        # pub = PublishMessage(
+        #     creator=n1.id,
+        #     message="Testing Da Publish",
+        #     message_type="PublishMessage",
+        #     topic="yolo",
+        # )
+        # meta = MessageMetaData(batched=False, sender=n1.id)
+        # n1.command(pub, meta)
+        # await asyncio.sleep(1)
 
         # print(n2.received_messages)
-        # await asyncio.sleep(5)
+        await asyncio.sleep(5)
 
 
 async def shutdown(signal, loop):
