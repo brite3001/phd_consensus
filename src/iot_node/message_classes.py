@@ -69,6 +69,3 @@ class BatchMessageBuilder:
         return bls_pop.AggregateVerify(
             pub_keys, messages_as_bytes, base64.b64decode(self.aggregated_signature)
         )
-
-    def int_to_bytes(self, x: int) -> bytes:
-        return x.to_bytes(4, byteorder="little")
