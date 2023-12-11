@@ -7,9 +7,7 @@ from iot_node.node import Node
 from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.message_classes import DirectMessage
 from iot_node.message_classes import PublishMessage
-from iot_node.message_classes import MessageMetaData
-from iot_node.message_classes import MessageSignatures
-from iot_node.message_classes import SignedDirectMessages
+from iot_node.message_classes import BatchMessageBuilder
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,12 +43,13 @@ async def main():
             message="Hello!!!",
             message_type="DirectMessage",
         )
-        meta = MessageMetaData(batched=False, sender=n1.id)
-        sigs = MessageSignatures("aaaaa", "bbbbb")
+        # sigs = MessageSignatures(sender_signature="aaaaa", creator_signature="bbbbb")
 
-        sm = SignedDirectMessages()
+        sm = BatchMessageBuilder(n1._public_key)
 
-        sm.add_msg(dm, sigs, meta)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
 
         print(sm)
 

@@ -1,12 +1,13 @@
 from attrs import define, field, asdict
+from py_ecc.bls import G2ProofOfPossession as bls_pop
 import asyncio
 import aiozmq
 import zmq
 import json
+import secrets
 
 from .message_classes import DirectMessage
 from .message_classes import PublishMessage
-from .message_classes import MessageMetaData
 from .message_classes import MessageSignatures
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
@@ -21,6 +22,8 @@ class Node:
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
     _publisher: aiozmq.stream.ZmqStream = field(init=False)
     _router: aiozmq.stream.ZmqStream = field(init=False)
+    _private_key: int = field(init=False)
+    _public_key: int = field(init=False)
 
     received_messages: dict = field(factory=dict)
     running: bool = True
@@ -28,10 +31,9 @@ class Node:
     ####################
     # Inbox            #
     ####################
-    async def inbox(self, message, meta_data: MessageMetaData):
+    async def inbox(self, message):
         print(f"[{self.id}] Received Message")
         print(f"[{self.id}] {message}")
-        print(meta_data)
         self.received_messages[hash(message)] = message
 
     ####################
@@ -74,32 +76,26 @@ class Node:
             else:
                 print("Couldnt find matching class for message!!")
 
-            meta_data = MessageMetaData(**meta_data)
-
             asyncio.create_task(self.inbox(message, meta_data))
 
     ####################
     # Message Sending  #
     ####################
-    async def publish(self, pub: PublishMessage, meta_data: MessageMetaData):
+    async def publish(self, pub: PublishMessage):
         message = json.dumps(asdict(pub)).encode()
-        meta_data = json.dumps(asdict(meta_data)).encode()
 
-        self._publisher.write([pub.topic.encode(), message, meta_data])
+        self._publisher.write([pub.topic.encode(), message])
         print(f"[{self.id}] Published Message {hash(pub)}")
 
-    async def direct_message(
-        self, message: DirectMessage, meta_data: MessageMetaData, receiver: str
-    ):
+    async def direct_message(self, message: DirectMessage, receiver: str):
         if receiver is None:
             raise Exception("Missing receiver in direct_message call!!!")
 
         req = await aiozmq.create_zmq_stream(zmq.REQ)
         await req.transport.connect(receiver)
         message = json.dumps(asdict(message)).encode()
-        meta_data = json.dumps(asdict(meta_data)).encode()
 
-        req.write([message, meta_data])
+        req.write([message])
 
     ####################
     # Node 'API'       #
@@ -132,6 +128,9 @@ class Node:
             zmq.PUB, bind=self.publisher_bind
         )
         self._router = await aiozmq.create_zmq_stream(zmq.ROUTER, bind=self.router_bind)
+
+        self._private_key = secrets.randbits(128)
+        self._public_key = bls_pop.SkToPk(self._private_key)
 
         print(f"[{self.id}] Started PUB/SUB Sockets")
 
