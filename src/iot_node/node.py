@@ -10,7 +10,8 @@ import secrets
 
 from .message_classes import DirectMessage
 from .message_classes import PublishMessage
-from .message_classes import MessageSignatures
+from .message_classes import BatchedMessages
+from .message_classes import BatchMessageBuilder
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 
@@ -25,14 +26,20 @@ class CryptoKeys:
     bls_public_key = bls_pop.SkToPk(bls_private_key)
     bls_public_key_string = base64.b64encode(bls_public_key).decode("utf-8")
 
-    def ecdsa_dict_to_point(x: dict) -> point.Point:
-        return point.Point(x["x"], x["y"])
+    def ecdsa_dict_to_point(self, ecdsa_dict: dict) -> point.Point:
+        return point.Point(ecdsa_dict["x"], ecdsa_dict["y"])
+
+    def ecdsa_dict_to_id(self, ecdsa_dict: dict) -> str:
+        return str(hash(json.dumps(ecdsa_dict)))[:3]
 
     def bls_bytes_to_base64(self, bls_bytes: bytes) -> base64:
         base64.b64encode(bls_bytes).decode("utf-8")
 
     def bls_base64_to_bytes(self, bls_base64: base64) -> bytes:
         return base64.b64decode(bls_base64)
+
+    def bls_bytes_to_id(self, bls_bytes: bytes) -> str:
+        return str(hash(bls_bytes))[:3]
 
 
 @define
@@ -69,15 +76,18 @@ class Node:
 
             recv = await self._router.read()
 
-            message = json.loads(recv[2].decode())
-            meta_data = json.loads(recv[3].decode())
+            msg = json.loads(recv[2].decode())
 
-            if message["message_type"] == "DirectMessage":
-                message = DirectMessage(**message)
-            else:
-                print("Couldnt find matching class for message!!")
+            bm = BatchedMessages(**msg)
+            msg_sig_check, sender_sig_check = bm.verify_signatures()
 
-            asyncio.create_task(self.inbox(message, meta_data))
+            if msg_sig_check and sender_sig_check:
+                creator = self._crypto_keys.ecdsa_dict_to_id(bm.sender_info.sender)
+                sender = self._crypto_keys.bls_bytes_to_id(bm.creator)
+                print(f"[{self.id}] Received Batch from: {sender} created by {creator}")
+
+                for message in bm.messages:
+                    asyncio.create_task(self.inbox(message))
 
     async def subscriber_listener(self):
         print(f"[{self.id}] Starting Subscriber")
@@ -108,9 +118,9 @@ class Node:
         self._publisher.write([pub.topic.encode(), message])
         print(f"[{self.id}] Published Message {hash(pub)}")
 
-    async def direct_message(self, message: DirectMessage, receiver: str):
-        if receiver is None:
-            raise Exception("Missing receiver in direct_message call!!!")
+    async def direct_message(self, message: BatchMessageBuilder, receiver: str):
+        assert isinstance(message, BatchMessageBuilder)
+        assert receiver
 
         req = await aiozmq.create_zmq_stream(zmq.REQ)
         await req.transport.connect(receiver)
@@ -121,13 +131,13 @@ class Node:
     ####################
     # Node 'API'       #
     ####################
-    def command(self, command_obj, meta_data=None, receiver=None):
-        if isinstance(command_obj, DirectMessage):
-            asyncio.create_task(self.direct_message(command_obj, meta_data, receiver))
+    def command(self, command_obj, receiver=None):
+        if isinstance(command_obj, BatchMessageBuilder):
+            asyncio.create_task(self.direct_message(command_obj, receiver))
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
         if isinstance(command_obj, PublishMessage):
-            asyncio.create_task(self.publish(command_obj, meta_data))
+            asyncio.create_task(self.publish(command_obj))
         if isinstance(command_obj, UnsubscribeFromTopic):
             asyncio.create_task(self.unsubscribe(command_obj))
 
@@ -156,7 +166,7 @@ class Node:
         ecdsa_public_key_dict["x"] = ecdsa_public_key.x
         ecdsa_public_key_dict["y"] = ecdsa_public_key.y
 
-        self.id = str(hash(json.dumps(ecdsa_public_key_dict)))[:2]
+        self.id = str(hash(json.dumps(ecdsa_public_key_dict)))[:3]
 
         self._crypto_keys = CryptoKeys(
             ecdsa_private_key, ecdsa_public_key, ecdsa_public_key_dict

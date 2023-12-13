@@ -1,6 +1,6 @@
 from attrs import frozen, field, validators, asdict, define
 from py_ecc.bls import G2ProofOfPossession as bls_pop
-from fastecdsa import ecdsa
+from fastecdsa import ecdsa, point
 from typing import List
 import json
 import base64
@@ -13,21 +13,8 @@ def bytes_to_base64(x: bytes) -> str:
 
 @frozen
 class SenderInformation:
-    sender: str = field(converter=bytes_to_base64)
+    sender: dict = field(validator=[validators.instance_of(dict)])  # ECDSA pubkey
     root_hash: str = field(validator=[validators.instance_of(str)])
-
-
-@frozen
-class MessageSignatures:
-    sender_signature: str = field(validator=[validators.instance_of(str)])
-    creator_signature: str = field(validator=[validators.instance_of(str)])
-
-
-@frozen
-class DirectMessage:
-    creator: str = field(converter=bytes_to_base64)
-    message: str = field(validator=[validators.instance_of(str)])
-    message_type: str = field(validator=[validators.instance_of(str)])
 
 
 @frozen
@@ -37,13 +24,37 @@ class PublishMessage:
     topic: str = field(validator=[validators.instance_of(str)])
 
 
+@frozen
+class DirectMessage:
+    message: str = field(validator=[validators.instance_of(str)])
+    message_type: str = field(validator=[validators.instance_of(str)])
+
+
+def base64_to_bytes(x: base64) -> bytes:
+    return base64.b64decode(x)
+
+
+def ecdsa_dict_to_point(x: dict) -> point.Point:
+    return point.Point(x["x"], x["y"])
+
+
+def sender_dict_to_object(x: dict) -> SenderInformation:
+    return SenderInformation(**x)
+
+
+def message_dict_to_object(x: dict) -> list[DirectMessage]:
+    return [DirectMessage(**a) for a in x]
+
+
+# Used on the senders side, builds a BatchedMessage from multiple DirectMessages
 @define
 class BatchMessageBuilder:
-    creator: str = field(converter=bytes_to_base64)
+    creator: str = field(converter=bytes_to_base64)  # BLS pubkey
     messages: List[DirectMessage] = field(factory=list)
     aggregated_signature: str = field(init=False)
+
     sender_signature: str = field(init=False)
-    sender: SenderInformation = field(init=False)
+    sender_info: SenderInformation = field(init=False)
 
     batched: bool = False
 
@@ -56,6 +67,7 @@ class BatchMessageBuilder:
             self.batched = True
 
     def sign_messages(self, keys):
+        # Messages are signed with the BLS private key
         messages_as_bytes = [json.dumps(asdict(x)).encode() for x in self.messages]
         sigs = []
         agg_sig = None
@@ -72,44 +84,42 @@ class BatchMessageBuilder:
         self.aggregated_signature = bytes_to_base64(agg_sig)
 
     def sign_sender(self, keys):
+        # The sender part is signed with the ECDSA private key
         assert self.aggregated_signature
 
         mtree = MerkleTree([str(hash(x)) for x in self.messages])
 
-        self.sender = SenderInformation(keys.bls_public_key, mtree.root)
-        sender_bytes = json.dumps(asdict(self.sender)).encode()
+        self.sender_info = SenderInformation(keys.ecdsa_public_key_dict, mtree.root)
+        sender_bytes = json.dumps(asdict(self.sender_info)).encode()
 
         self.sender_signature = ecdsa.sign(sender_bytes, keys.ecdsa_private_key)
 
-    def freeze_batch(self):
-        assert self.aggregated_signature
-        assert self.sender_signature
 
-        return BatchedMessages(
-            self.creator,
-            self.messages,
-            self.sender,
-            self.aggregated_signature,
-            self.sender_signature,
-            self.batched,
-        )
-
-
+# Used on the receivers side, automatically deserialises and
+# converts the objects from json dicts into objects
 @frozen
 class BatchedMessages:
-    creator: str = field(validator=[validators.instance_of(str)])
-    messages: List[DirectMessage] = field(validator=[validators.instance_of(list)])
-    sender: SenderInformation = field(
-        validator=[validators.instance_of(SenderInformation)]
-    )
-    aggregated_signature: str = field(validator=[validators.instance_of(str)])
-    sender_signature: tuple = field(validator=[validators.instance_of(tuple)])
+    creator: str = field(converter=base64_to_bytes)  # BLS pubkey
+    messages: List[DirectMessage] = field(converter=message_dict_to_object)
+    sender_info: SenderInformation = field(converter=sender_dict_to_object)
+    aggregated_signature: bytes = field(converter=base64_to_bytes)
+    sender_signature: list = field(validator=[validators.instance_of(list)])
     batched: bool = field(validator=[validators.instance_of(bool)])
 
-    def verify_signatures(self) -> bool:
-        pub_keys = [base64.b64decode(self.creator) for _ in self.messages]
+    def verify_signatures(self) -> tuple:
+        pub_keys = [self.creator for _ in self.messages]
         messages_as_bytes = [json.dumps(asdict(x)).encode() for x in self.messages]
 
-        return bls_pop.AggregateVerify(
-            pub_keys, messages_as_bytes, base64.b64decode(self.aggregated_signature)
+        messages_sig_check = bls_pop.AggregateVerify(
+            pub_keys, messages_as_bytes, self.aggregated_signature
         )
+
+        sender_bytes = json.dumps(asdict(self.sender_info)).encode()
+
+        sender_sig_check = ecdsa.verify(
+            self.sender_signature,
+            sender_bytes,
+            ecdsa_dict_to_point(self.sender_info.sender),
+        )
+
+        return (messages_sig_check, sender_sig_check)

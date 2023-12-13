@@ -38,11 +38,9 @@ async def main():
 
     while True:
         dm = DirectMessage(
-            creator=n1._crypto_keys.bls_public_key,
             message="Hello!!!",
             message_type="DirectMessage",
         )
-        # sigs = MessageSignatures(sender_signature="aaaaa", creator_signature="bbbbb")
 
         sm = BatchMessageBuilder(n1._crypto_keys.bls_public_key)
 
@@ -50,18 +48,18 @@ async def main():
         sm.add_msg(dm)
         sm.add_msg(dm)
         sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
+        sm.add_msg(dm)
         sm.sign_messages(n1._crypto_keys)
         sm.sign_sender(n1._crypto_keys)
 
-        frozen_batch = sm.freeze_batch()
+        n1.command(sm, "tcp://127.0.0.1:20002")
 
-        working = frozen_batch.verify_signatures()
-        print(working)
+        # msg, sender = frozen_batch.verify_signatures()
+        # print(msg, sender)
 
         # n1.command(dm, meta, "tcp://127.0.0.1:20002")
         # await asyncio.sleep(1)
