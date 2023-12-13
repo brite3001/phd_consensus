@@ -1,5 +1,7 @@
-from attrs import define, field, asdict
+from attrs import define, field, asdict, frozen, validators
 from py_ecc.bls import G2ProofOfPossession as bls_pop
+from fastecdsa import curve, keys, point
+import base64
 import asyncio
 import aiozmq
 import zmq
@@ -13,17 +15,36 @@ from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 
 
+@frozen
+class CryptoKeys:
+    ecdsa_private_key = field(validator=[validators.instance_of(int)])
+    ecdsa_public_key = field(validator=[validators.instance_of(point.Point)])
+    ecdsa_public_key_dict = field(validator=[validators.instance_of(dict)])
+
+    bls_private_key = secrets.randbits(128)
+    bls_public_key = bls_pop.SkToPk(bls_private_key)
+    bls_public_key_string = base64.b64encode(bls_public_key).decode("utf-8")
+
+    def ecdsa_dict_to_point(x: dict) -> point.Point:
+        return point.Point(x["x"], x["y"])
+
+    def bls_bytes_to_base64(self, bls_bytes: bytes) -> base64:
+        base64.b64encode(bls_bytes).decode("utf-8")
+
+    def bls_base64_to_bytes(self, bls_base64: base64) -> bytes:
+        return base64.b64decode(bls_base64)
+
+
 @define
 class Node:
-    id: str
-    router_bind: str
-    publisher_bind: str
+    router_bind: str = field(validator=[validators.instance_of(str)])
+    publisher_bind: str = field(validator=[validators.instance_of(str)])
+    id: str = field(init=False)
 
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
     _publisher: aiozmq.stream.ZmqStream = field(init=False)
     _router: aiozmq.stream.ZmqStream = field(init=False)
-    _private_key: int = field(init=False)
-    _public_key: int = field(init=False)
+    _crypto_keys: CryptoKeys = field(init=False)
 
     received_messages: dict = field(factory=dict)
     running: bool = True
@@ -129,8 +150,17 @@ class Node:
         )
         self._router = await aiozmq.create_zmq_stream(zmq.ROUTER, bind=self.router_bind)
 
-        self._private_key = secrets.randbits(128)
-        self._public_key = bls_pop.SkToPk(self._private_key)
+        ecdsa_private_key = keys.gen_private_key(curve.P256)
+        ecdsa_public_key = keys.get_public_key(ecdsa_private_key, curve.P256)
+        ecdsa_public_key_dict = {}
+        ecdsa_public_key_dict["x"] = ecdsa_public_key.x
+        ecdsa_public_key_dict["y"] = ecdsa_public_key.y
+
+        self.id = str(hash(json.dumps(ecdsa_public_key_dict)))[:2]
+
+        self._crypto_keys = CryptoKeys(
+            ecdsa_private_key, ecdsa_public_key, ecdsa_public_key_dict
+        )
 
         print(f"[{self.id}] Started PUB/SUB Sockets")
 

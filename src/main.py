@@ -2,6 +2,7 @@ import asyncio
 import signal
 import logging
 import uvloop
+import msgpack
 
 from iot_node.node import Node
 from iot_node.commad_arg_classes import SubscribeToPublisher
@@ -18,12 +19,10 @@ logging.basicConfig(
 
 async def main():
     n1 = Node(
-        id="node_one",
         router_bind="tcp://127.0.0.1:20001",
         publisher_bind="tcp://127.0.0.1:21001",
     )
     n2 = Node(
-        id="node_two",
         router_bind="tcp://127.0.0.1:20002",
         publisher_bind="tcp://127.0.0.1:21002",
     )
@@ -39,27 +38,29 @@ async def main():
 
     while True:
         dm = DirectMessage(
-            creator=n1._public_key,
+            creator=n1._crypto_keys.bls_public_key,
             message="Hello!!!",
             message_type="DirectMessage",
         )
         # sigs = MessageSignatures(sender_signature="aaaaa", creator_signature="bbbbb")
 
-        sm = BatchMessageBuilder(n1._public_key)
-        print(n1._public_key)
+        sm = BatchMessageBuilder(n1._crypto_keys.bls_public_key)
 
         sm.add_msg(dm)
         sm.add_msg(dm)
         sm.add_msg(dm)
         sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.sign_messages(n1._private_key)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        sm.sign_messages(n1._crypto_keys)
+        sm.sign_sender(n1._crypto_keys)
 
-        working = sm.verify_signatures()
+        frozen_batch = sm.freeze_batch()
+
+        working = frozen_batch.verify_signatures()
         print(working)
 
         # n1.command(dm, meta, "tcp://127.0.0.1:20002")
