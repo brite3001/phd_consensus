@@ -30,6 +30,16 @@ class DirectMessage:
     message_type: str = field(validator=[validators.instance_of(str)])
 
 
+@frozen
+class Gossip:
+    """
+    TODO: Add signature verification to gossiped messages
+    """
+
+    message: str = field(validator=[validators.instance_of(str)])
+    message_type: str = "Gossip"
+
+
 def base64_to_bytes(x: base64) -> bytes:
     return base64.b64decode(x)
 
@@ -48,7 +58,7 @@ def message_dict_to_object(x: dict) -> list[DirectMessage]:
 
 # Used on the senders side, builds a BatchedMessage from multiple DirectMessages
 @define
-class BatchMessageBuilder:
+class BatchedMessageBuilder:
     creator: str = field(converter=bytes_to_base64)  # BLS pubkey
     messages: List[DirectMessage] = field(factory=list)
     aggregated_signature: str = field(init=False)
@@ -57,6 +67,7 @@ class BatchMessageBuilder:
     sender_info: SenderInformation = field(init=False)
 
     batched: bool = False
+    message_type: str = "BatchedMessageBuilder"
 
     def add_msg(self, msg: DirectMessage):
         assert isinstance(msg, DirectMessage)
@@ -105,6 +116,7 @@ class BatchedMessages:
     aggregated_signature: bytes = field(converter=base64_to_bytes)
     sender_signature: list = field(validator=[validators.instance_of(list)])
     batched: bool = field(validator=[validators.instance_of(bool)])
+    message_type: str = field(validator=[validators.instance_of(str)])
 
     def verify_signatures(self) -> tuple:
         pub_keys = [self.creator for _ in self.messages]

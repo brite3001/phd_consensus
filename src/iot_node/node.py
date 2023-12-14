@@ -1,17 +1,20 @@
 from attrs import define, field, asdict, frozen, validators
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import curve, keys, point
+from typing import Union
 import base64
 import asyncio
 import aiozmq
 import zmq
 import json
 import secrets
+from queue import Queue
 
 from .message_classes import DirectMessage
 from .message_classes import PublishMessage
 from .message_classes import BatchedMessages
-from .message_classes import BatchMessageBuilder
+from .message_classes import BatchedMessageBuilder
+from .message_classes import Gossip
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 
@@ -22,11 +25,9 @@ class CryptoKeys:
     ecdsa_public_key = field(validator=[validators.instance_of(point.Point)])
     ecdsa_public_key_dict = field(validator=[validators.instance_of(dict)])
 
-    bls_private_key = field()
-    bls_public_key = field()
-    bls_public_key_string = field()
-
-    print("aaaaaaaaaaaaaaaaaaa")
+    bls_private_key: int = field(validator=[validators.instance_of(int)])
+    bls_public_key: bytes = field(validator=[validators.instance_of(bytes)])
+    bls_public_key_string: str = field(validator=[validators.instance_of(str)])
 
     def ecdsa_dict_to_point(self, ecdsa_dict: dict) -> point.Point:
         return point.Point(ecdsa_dict["x"], ecdsa_dict["y"])
@@ -55,8 +56,10 @@ class Node:
     _router: aiozmq.stream.ZmqStream = field(init=False)
     _crypto_keys: CryptoKeys = field(init=False)
 
+    minimum_transactions_to_batch: int = field(factory=int)
+    gossip_queue: Queue = field(factory=Queue)
     received_messages: dict = field(factory=dict)
-    running: bool = True
+    running: bool = field(factory=bool)
 
     ####################
     # Inbox            #
@@ -80,16 +83,22 @@ class Node:
 
             msg = json.loads(recv[2].decode())
 
-            bm = BatchedMessages(**msg)
-            msg_sig_check, sender_sig_check = bm.verify_signatures()
+            if msg["message_type"] == "DirectMessage":
+                dm = DirectMessage(**msg)
+                asyncio.create_task(self.inbox(dm))
+            if msg["message_type"] == "BatchedMessageBuilder":
+                bm = BatchedMessages(**msg)
+                msg_sig_check, sender_sig_check = bm.verify_signatures()
 
-            if msg_sig_check and sender_sig_check:
-                sender = self._crypto_keys.ecdsa_dict_to_id(bm.sender_info.sender)
-                creator = self._crypto_keys.bls_bytes_to_id(bm.creator)
-                print(f"[{self.id}] Received Batch from: {sender} created by {creator}")
+                if msg_sig_check and sender_sig_check:
+                    sender = self._crypto_keys.ecdsa_dict_to_id(bm.sender_info.sender)
+                    creator = self._crypto_keys.bls_bytes_to_id(bm.creator)
+                    print(
+                        f"[{self.id}] Received BatchedMessage from: {sender} created by {creator}"
+                    )
 
-                for message in bm.messages:
-                    asyncio.create_task(self.inbox(message))
+                    for message in bm.messages:
+                        asyncio.create_task(self.inbox(message))
 
     async def subscriber_listener(self):
         print(f"[{self.id}] Starting Subscriber")
@@ -120,8 +129,10 @@ class Node:
         self._publisher.write([pub.topic.encode(), message])
         print(f"[{self.id}] Published Message {hash(pub)}")
 
-    async def direct_message(self, message: BatchMessageBuilder, receiver: str):
-        assert isinstance(message, BatchMessageBuilder)
+    async def direct_message(
+        self, message: Union[DirectMessage, BatchedMessageBuilder], receiver: str
+    ):
+        assert isinstance(message, Union[DirectMessage, BatchedMessageBuilder])
         assert receiver
 
         req = await aiozmq.create_zmq_stream(zmq.REQ)
@@ -130,11 +141,30 @@ class Node:
 
         req.write([message])
 
+    async def gossip(self, gossip: Gossip, receiver: str):
+        self.gossip_queue.put(gossip)
+
+        if self.gossip_queue.qsize() >= self.minimum_transactions_to_batch:
+            bmb = BatchedMessageBuilder(self._crypto_keys.bls_public_key)
+
+            while not self.gossip_queue.empty():
+                bmb.messages.append(self.gossip_queue.get())
+
+            bmb.sign_messages(self._crypto_keys)
+            bmb.sign_sender(self._crypto_keys)
+
+            """
+            TODO: replace with proper AT2 Gossip...
+            """
+            asyncio.create_task(self.direct_message(bmb, receiver))
+
     ####################
     # Node 'API'       #
     ####################
     def command(self, command_obj, receiver=None):
-        if isinstance(command_obj, BatchMessageBuilder):
+        if isinstance(command_obj, Gossip):
+            asyncio.create_task(self.gossip(command_obj, receiver))
+        if isinstance(command_obj, DirectMessage):
             asyncio.create_task(self.direct_message(command_obj, receiver))
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
@@ -192,5 +222,7 @@ class Node:
         self._router.close()
 
     async def start(self):
+        self.running = True
+        self.minimum_transactions_to_batch = 5
         asyncio.create_task(self.router_listener())
         asyncio.create_task(self.subscriber_listener())

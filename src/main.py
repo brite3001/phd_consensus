@@ -7,7 +7,7 @@ from iot_node.node import Node
 from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.message_classes import DirectMessage
 from iot_node.message_classes import PublishMessage
-from iot_node.message_classes import BatchMessageBuilder
+from iot_node.message_classes import Gossip
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,27 +41,37 @@ async def main():
             message_type="DirectMessage",
         )
 
-        sm = BatchMessageBuilder(n1._crypto_keys.bls_public_key)
+        gos = Gossip(
+            message="Hello!!!",
+            message_type="Gossip",
+        )
 
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.add_msg(dm)
-        sm.sign_messages(n1._crypto_keys)
-        sm.sign_sender(n1._crypto_keys)
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
 
-        n1.command(sm, "tcp://127.0.0.1:20002")
+        # sm = BatchMessageBuilder(n1._crypto_keys.bls_public_key)
 
-        # msg, sender = frozen_batch.verify_signatures()
-        # print(msg, sender)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.add_msg(dm)
+        # sm.sign_messages(n1._crypto_keys)
+        # sm.sign_sender(n1._crypto_keys)
 
-        # n1.command(dm, meta, "tcp://127.0.0.1:20002")
-        # await asyncio.sleep(1)
+        # n1.command(sm, "tcp://127.0.0.1:20002")
 
         # pub = PublishMessage(
         #     creator=n1.id,
