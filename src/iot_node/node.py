@@ -15,15 +15,18 @@ from .message_classes import PublishMessage
 from .message_classes import BatchedMessages
 from .message_classes import BatchedMessageBuilder
 from .message_classes import Gossip
+from .message_classes import KeyExchange
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 
 
 @frozen
 class CryptoKeys:
-    ecdsa_private_key = field(validator=[validators.instance_of(int)])
-    ecdsa_public_key = field(validator=[validators.instance_of(point.Point)])
-    ecdsa_public_key_dict = field(validator=[validators.instance_of(dict)])
+    ecdsa_private_key: int = field(validator=[validators.instance_of(int)])
+    ecdsa_public_key: point.Point = field(
+        validator=[validators.instance_of(point.Point)]
+    )
+    ecdsa_public_key_dict: dict = field(validator=[validators.instance_of(dict)])
 
     bls_private_key: int = field(validator=[validators.instance_of(int)])
     bls_public_key: bytes = field(validator=[validators.instance_of(bytes)])
@@ -45,11 +48,23 @@ class CryptoKeys:
         return str(hash(bls_bytes))[:3]
 
 
+@frozen
+class PeerInformation:
+    bls_public_key: bytes = field(validator=[validators.instance_of(bytes)])
+    ecdsa_public_key: point.Point = field(
+        validator=[validators.instance_of(point.Point)]
+    )
+    ip_address: str = field(validator=[validators.instance_of(str)])
+
+
 @define
 class Node:
     router_bind: str = field(validator=[validators.instance_of(str)])
     publisher_bind: str = field(validator=[validators.instance_of(str)])
     id: str = field(init=False)
+
+    # {'bls_id': PeerInformation}
+    peers: dict = field(factory=dict)
 
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
     _publisher: aiozmq.stream.ZmqStream = field(init=False)
@@ -67,7 +82,16 @@ class Node:
     async def inbox(self, message):
         print(f"[{self.id}] Received Message")
         print(f"[{self.id}] {message}")
-        self.received_messages[hash(message)] = message
+        if isinstance(message, Gossip):
+            self.received_messages[hash(message)] = message
+        elif isinstance(message, KeyExchange):
+            bls_id = self._crypto_keys.bls_bytes_to_id(message.bls_public_key)
+            ecdsa_point = self._crypto_keys.ecdsa_dict_to_point(
+                message.ecdsa_public_key
+            )
+            self.peers[bls_id] = PeerInformation(
+                message.bls_public_key, ecdsa_point, message.ip_address
+            )
 
     ####################
     # Listeners        #
@@ -86,7 +110,7 @@ class Node:
             if msg["message_type"] == "DirectMessage":
                 dm = DirectMessage(**msg)
                 asyncio.create_task(self.inbox(dm))
-            if msg["message_type"] == "BatchedMessageBuilder":
+            elif msg["message_type"] == "BatchedMessageBuilder":
                 bm = BatchedMessages(**msg)
                 msg_sig_check, sender_sig_check = bm.verify_signatures()
 
@@ -99,6 +123,12 @@ class Node:
 
                     for message in bm.messages:
                         asyncio.create_task(self.inbox(message))
+            elif msg["message_type"] == "KeyExchange":
+                print("Received Key Exchange Message")
+                key_ex = KeyExchange(**msg)
+                asyncio.create_task(self.inbox(key_ex))
+            else:
+                print(f"Received unrecognised message: {msg}")
 
     async def subscriber_listener(self):
         print(f"[{self.id}] Starting Subscriber")
@@ -162,16 +192,18 @@ class Node:
     # Node 'API'       #
     ####################
     def command(self, command_obj, receiver=None):
-        if isinstance(command_obj, Gossip):
-            asyncio.create_task(self.gossip(command_obj, receiver))
-        if isinstance(command_obj, DirectMessage):
-            asyncio.create_task(self.direct_message(command_obj, receiver))
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
-        if isinstance(command_obj, PublishMessage):
+        elif isinstance(command_obj, PublishMessage):
             asyncio.create_task(self.publish(command_obj))
-        if isinstance(command_obj, UnsubscribeFromTopic):
+        elif isinstance(command_obj, UnsubscribeFromTopic):
             asyncio.create_task(self.unsubscribe(command_obj))
+        elif issubclass(type(command_obj), DirectMessage):
+            asyncio.create_task(self.direct_message(command_obj, receiver))
+        elif isinstance(command_obj, Gossip):
+            asyncio.create_task(self.gossip(command_obj, receiver))
+        else:
+            print(f"Unrecognised command object: {command_obj}")
 
     ####################
     # Helper Functions #

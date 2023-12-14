@@ -8,6 +8,7 @@ from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.message_classes import DirectMessage
 from iot_node.message_classes import PublishMessage
 from iot_node.message_classes import Gossip
+from iot_node.message_classes import KeyExchange
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,25 +38,36 @@ async def main():
 
     while True:
         dm = DirectMessage(
-            message="Hello!!!",
             message_type="DirectMessage",
         )
 
         gos = Gossip(
-            message="Hello!!!",
             message_type="Gossip",
         )
 
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
+        key_ex = KeyExchange(
+            message_type="KeyExchange",
+            bls_public_key=n1._crypto_keys.bls_public_key,
+            ecdsa_public_key=n1._crypto_keys.ecdsa_public_key_dict,
+            ip_address="127.0.0.1:20001",
+        )
+
+        n1.command(key_ex, "tcp://127.0.0.1:20002")
+
+        print("--------------")
+        print(n2.peers)
+        print("--------------")
+
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
 
         # sm = BatchMessageBuilder(n1._crypto_keys.bls_public_key)
 

@@ -7,8 +7,11 @@ import base64
 from merkly.mtree import MerkleTree
 
 
-def bytes_to_base64(x: bytes) -> str:
-    return base64.b64encode(x).decode("utf-8")
+def bytes_to_base64(x: bytes):
+    try:
+        return base64.b64encode(x).decode("utf-8")
+    except:
+        return base64.b64decode(x)
 
 
 @frozen
@@ -26,8 +29,14 @@ class PublishMessage:
 
 @frozen
 class DirectMessage:
-    message: str = field(validator=[validators.instance_of(str)])
     message_type: str = field(validator=[validators.instance_of(str)])
+
+
+@frozen
+class KeyExchange(DirectMessage):
+    bls_public_key: str = field(converter=bytes_to_base64)
+    ecdsa_public_key: dict = field(validator=[validators.instance_of(dict)])
+    ip_address: str = field(validator=[validators.instance_of(str)])
 
 
 @frozen
@@ -36,7 +45,6 @@ class Gossip:
     TODO: Add signature verification to gossiped messages
     """
 
-    message: str = field(validator=[validators.instance_of(str)])
     message_type: str = "Gossip"
 
 
