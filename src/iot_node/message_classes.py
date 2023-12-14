@@ -2,6 +2,7 @@ from attrs import frozen, field, validators, asdict, define
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import ecdsa, point
 from typing import List
+from time import time
 import json
 import base64
 from merkly.mtree import MerkleTree
@@ -27,25 +28,26 @@ class PublishMessage:
     topic: str = field(validator=[validators.instance_of(str)])
 
 
-@frozen
+@define
 class DirectMessage:
     message_type: str = field(validator=[validators.instance_of(str)])
 
 
 @frozen
-class KeyExchange(DirectMessage):
+class PeerDiscovery(DirectMessage):
     bls_public_key: str = field(converter=bytes_to_base64)
     ecdsa_public_key: dict = field(validator=[validators.instance_of(dict)])
-    ip_address: str = field(validator=[validators.instance_of(str)])
+    router_address: str = field(validator=[validators.instance_of(str)])
+    publisher_address: str = field(validator=[validators.instance_of(str)])
 
 
 @frozen
-class Gossip:
+class Gossip(DirectMessage):
     """
     TODO: Add signature verification to gossiped messages
     """
 
-    message_type: str = "Gossip"
+    timestamp = int(time())
 
 
 def base64_to_bytes(x: base64) -> bytes:
@@ -60,13 +62,13 @@ def sender_dict_to_object(x: dict) -> SenderInformation:
     return SenderInformation(**x)
 
 
-def message_dict_to_object(x: dict) -> list[DirectMessage]:
-    return [DirectMessage(**a) for a in x]
+def gossip_dict_to_object(x: dict) -> list[DirectMessage]:
+    return [Gossip(**g) for g in x]
 
 
 # Used on the senders side, builds a BatchedMessage from multiple DirectMessages
 @define
-class BatchedMessageBuilder:
+class BatchedMessageBuilder(DirectMessage):
     creator: str = field(converter=bytes_to_base64)  # BLS pubkey
     messages: List[DirectMessage] = field(factory=list)
     aggregated_signature: str = field(init=False)
@@ -75,7 +77,6 @@ class BatchedMessageBuilder:
     sender_info: SenderInformation = field(init=False)
 
     batched: bool = False
-    message_type: str = "BatchedMessageBuilder"
 
     def add_msg(self, msg: DirectMessage):
         assert isinstance(msg, DirectMessage)
@@ -119,7 +120,7 @@ class BatchedMessageBuilder:
 @frozen
 class BatchedMessages:
     creator: str = field(converter=base64_to_bytes)  # BLS pubkey
-    messages: List[DirectMessage] = field(converter=message_dict_to_object)
+    messages: List[DirectMessage] = field(converter=gossip_dict_to_object)
     sender_info: SenderInformation = field(converter=sender_dict_to_object)
     aggregated_signature: bytes = field(converter=base64_to_bytes)
     sender_signature: list = field(validator=[validators.instance_of(list)])

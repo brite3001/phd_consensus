@@ -1,3 +1,4 @@
+from copy import deepcopy
 import asyncio
 import signal
 import logging
@@ -8,7 +9,7 @@ from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.message_classes import DirectMessage
 from iot_node.message_classes import PublishMessage
 from iot_node.message_classes import Gossip
-from iot_node.message_classes import KeyExchange
+from iot_node.message_classes import PeerDiscovery
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,6 +19,10 @@ logging.basicConfig(
 
 
 async def main():
+    router_start = 20001
+    publisher_start = 21001
+    nodes = []
+
     n1 = Node(
         router_bind="tcp://127.0.0.1:20001",
         publisher_bind="tcp://127.0.0.1:21001",
@@ -27,14 +32,20 @@ async def main():
         publisher_bind="tcp://127.0.0.1:21002",
     )
 
+    router_list = ["tcp://127.0.0.1:20001", "tcp://127.0.0.1:20002"]
+
     await n1.init_sockets()
     await n1.start()
+    await n1.peer_discovery(deepcopy(router_list))
 
     await n2.init_sockets()
     await n2.start()
+    await n2.peer_discovery(deepcopy(router_list))
 
     sub = SubscribeToPublisher("tcp://127.0.0.1:21001", "yolo")
     n2.command(sub)
+
+    await asyncio.sleep(2.5)
 
     while True:
         dm = DirectMessage(
@@ -45,45 +56,16 @@ async def main():
             message_type="Gossip",
         )
 
-        key_ex = KeyExchange(
-            message_type="KeyExchange",
-            bls_public_key=n1._crypto_keys.bls_public_key,
-            ecdsa_public_key=n1._crypto_keys.ecdsa_public_key_dict,
-            ip_address="127.0.0.1:20001",
-        )
-
-        n1.command(key_ex, "tcp://127.0.0.1:20002")
-
-        print("--------------")
-        print(n2.peers)
-        print("--------------")
-
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-
-        # sm = BatchMessageBuilder(n1._crypto_keys.bls_public_key)
-
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.add_msg(dm)
-        # sm.sign_messages(n1._crypto_keys)
-        # sm.sign_sender(n1._crypto_keys)
-
-        # n1.command(sm, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos, "tcp://127.0.0.1:20002")
 
         # pub = PublishMessage(
         #     creator=n1.id,

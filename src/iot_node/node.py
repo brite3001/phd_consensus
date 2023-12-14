@@ -1,7 +1,7 @@
 from attrs import define, field, asdict, frozen, validators
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import curve, keys, point
-from typing import Union
+from typing import Union, Type
 import base64
 import asyncio
 import aiozmq
@@ -15,7 +15,7 @@ from .message_classes import PublishMessage
 from .message_classes import BatchedMessages
 from .message_classes import BatchedMessageBuilder
 from .message_classes import Gossip
-from .message_classes import KeyExchange
+from .message_classes import PeerDiscovery
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 
@@ -54,7 +54,8 @@ class PeerInformation:
     ecdsa_public_key: point.Point = field(
         validator=[validators.instance_of(point.Point)]
     )
-    ip_address: str = field(validator=[validators.instance_of(str)])
+    router_address: str = field(validator=[validators.instance_of(str)])
+    publisher_address: str = field(validator=[validators.instance_of(str)])
 
 
 @define
@@ -80,17 +81,21 @@ class Node:
     # Inbox            #
     ####################
     async def inbox(self, message):
-        print(f"[{self.id}] Received Message")
-        print(f"[{self.id}] {message}")
+        # print(f"[{self.id}] Received Message")
+
         if isinstance(message, Gossip):
+            print(f"[{self.id}] {message}")
             self.received_messages[hash(message)] = message
-        elif isinstance(message, KeyExchange):
+        elif isinstance(message, PeerDiscovery):
             bls_id = self._crypto_keys.bls_bytes_to_id(message.bls_public_key)
             ecdsa_point = self._crypto_keys.ecdsa_dict_to_point(
                 message.ecdsa_public_key
             )
             self.peers[bls_id] = PeerInformation(
-                message.bls_public_key, ecdsa_point, message.ip_address
+                message.bls_public_key,
+                ecdsa_point,
+                message.router_address,
+                message.publisher_address,
             )
 
     ####################
@@ -123,9 +128,9 @@ class Node:
 
                     for message in bm.messages:
                         asyncio.create_task(self.inbox(message))
-            elif msg["message_type"] == "KeyExchange":
-                print("Received Key Exchange Message")
-                key_ex = KeyExchange(**msg)
+            elif msg["message_type"] == "PeerDiscovery":
+                print("Received Peer Discovery Message")
+                key_ex = PeerDiscovery(**msg)
                 asyncio.create_task(self.inbox(key_ex))
             else:
                 print(f"Received unrecognised message: {msg}")
@@ -159,11 +164,8 @@ class Node:
         self._publisher.write([pub.topic.encode(), message])
         print(f"[{self.id}] Published Message {hash(pub)}")
 
-    async def direct_message(
-        self, message: Union[DirectMessage, BatchedMessageBuilder], receiver: str
-    ):
-        assert isinstance(message, Union[DirectMessage, BatchedMessageBuilder])
-        assert receiver
+    async def direct_message(self, message: Type[DirectMessage], receiver: str):
+        assert issubclass(type(message), DirectMessage)
 
         req = await aiozmq.create_zmq_stream(zmq.REQ)
         await req.transport.connect(receiver)
@@ -175,7 +177,10 @@ class Node:
         self.gossip_queue.put(gossip)
 
         if self.gossip_queue.qsize() >= self.minimum_transactions_to_batch:
-            bmb = BatchedMessageBuilder(self._crypto_keys.bls_public_key)
+            bmb = BatchedMessageBuilder(
+                message_type="BatchedMessageBuilder",
+                creator=self._crypto_keys.bls_public_key,
+            )
 
             while not self.gossip_queue.empty():
                 bmb.messages.append(self.gossip_queue.get())
@@ -194,20 +199,35 @@ class Node:
     def command(self, command_obj, receiver=None):
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
+        elif isinstance(command_obj, Gossip):
+            asyncio.create_task(self.gossip(command_obj, receiver))
         elif isinstance(command_obj, PublishMessage):
             asyncio.create_task(self.publish(command_obj))
         elif isinstance(command_obj, UnsubscribeFromTopic):
             asyncio.create_task(self.unsubscribe(command_obj))
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.direct_message(command_obj, receiver))
-        elif isinstance(command_obj, Gossip):
-            asyncio.create_task(self.gossip(command_obj, receiver))
         else:
             print(f"Unrecognised command object: {command_obj}")
 
     ####################
     # Helper Functions #
     ####################
+
+    async def peer_discovery(self, routers: list):
+        pd = PeerDiscovery(
+            message_type="PeerDiscovery",
+            bls_public_key=self._crypto_keys.bls_public_key,
+            ecdsa_public_key=self._crypto_keys.ecdsa_public_key_dict,
+            router_address=self.router_bind,
+            publisher_address=self.publisher_bind,
+        )
+
+        routers.remove(self.router_bind)
+
+        for ip in routers:
+            asyncio.create_task(self.direct_message(pd, ip))
+
     async def subscribe(self, s2p: SubscribeToPublisher):
         self._subscriber.transport.connect(s2p.publisher)
         self._subscriber.transport.subscribe(s2p.topic)
