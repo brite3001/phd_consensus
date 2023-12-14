@@ -15,7 +15,6 @@ dependencies = [
     "pytest-asyncio>=0.21.1",
     "py-ecc>=7.0.0",
     "fastecdsa>=2.3.0",
-    "msgpack>=1.0.7",
     "merkly>=0.8.1",
 ]
 requires-python = ">=3.10"

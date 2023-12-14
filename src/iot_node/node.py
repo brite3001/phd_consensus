@@ -22,9 +22,11 @@ class CryptoKeys:
     ecdsa_public_key = field(validator=[validators.instance_of(point.Point)])
     ecdsa_public_key_dict = field(validator=[validators.instance_of(dict)])
 
-    bls_private_key = secrets.randbits(128)
-    bls_public_key = bls_pop.SkToPk(bls_private_key)
-    bls_public_key_string = base64.b64encode(bls_public_key).decode("utf-8")
+    bls_private_key = field()
+    bls_public_key = field()
+    bls_public_key_string = field()
+
+    print("aaaaaaaaaaaaaaaaaaa")
 
     def ecdsa_dict_to_point(self, ecdsa_dict: dict) -> point.Point:
         return point.Point(ecdsa_dict["x"], ecdsa_dict["y"])
@@ -82,8 +84,8 @@ class Node:
             msg_sig_check, sender_sig_check = bm.verify_signatures()
 
             if msg_sig_check and sender_sig_check:
-                creator = self._crypto_keys.ecdsa_dict_to_id(bm.sender_info.sender)
-                sender = self._crypto_keys.bls_bytes_to_id(bm.creator)
+                sender = self._crypto_keys.ecdsa_dict_to_id(bm.sender_info.sender)
+                creator = self._crypto_keys.bls_bytes_to_id(bm.creator)
                 print(f"[{self.id}] Received Batch from: {sender} created by {creator}")
 
                 for message in bm.messages:
@@ -166,11 +168,20 @@ class Node:
         ecdsa_public_key_dict["x"] = ecdsa_public_key.x
         ecdsa_public_key_dict["y"] = ecdsa_public_key.y
 
-        self.id = str(hash(json.dumps(ecdsa_public_key_dict)))[:3]
+        bls_private_key = secrets.randbits(128)
+        bls_public_key = bls_pop.SkToPk(bls_private_key)
+        bls_public_key_string = base64.b64encode(bls_public_key).decode("utf-8")
 
         self._crypto_keys = CryptoKeys(
-            ecdsa_private_key, ecdsa_public_key, ecdsa_public_key_dict
+            ecdsa_private_key,
+            ecdsa_public_key,
+            ecdsa_public_key_dict,
+            bls_private_key,
+            bls_public_key,
+            bls_public_key_string,
         )
+
+        self.id = self._crypto_keys.bls_bytes_to_id(self._crypto_keys.bls_public_key)
 
         print(f"[{self.id}] Started PUB/SUB Sockets")
 

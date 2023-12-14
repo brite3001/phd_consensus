@@ -2,7 +2,6 @@ import asyncio
 import signal
 import logging
 import uvloop
-import msgpack
 
 from iot_node.node import Node
 from iot_node.commad_arg_classes import SubscribeToPublisher
