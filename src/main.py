@@ -3,13 +3,13 @@ import asyncio
 import signal
 import logging
 import uvloop
+import random
 
 from iot_node.node import Node
 from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.message_classes import DirectMessage
 from iot_node.message_classes import PublishMessage
 from iot_node.message_classes import Gossip
-from iot_node.message_classes import PeerDiscovery
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,50 +22,64 @@ async def main():
     router_start = 20001
     publisher_start = 21001
     nodes = []
+    num_nodes = 10
 
-    n1 = Node(
-        router_bind="tcp://127.0.0.1:20001",
-        publisher_bind="tcp://127.0.0.1:21001",
-    )
-    n2 = Node(
-        router_bind="tcp://127.0.0.1:20002",
-        publisher_bind="tcp://127.0.0.1:21002",
-    )
+    router_list = [
+        "tcp://127.0.0.1:20001",
+        "tcp://127.0.0.1:20002",
+        "tcp://127.0.0.1:20003",
+        "tcp://127.0.0.1:20004",
+        "tcp://127.0.0.1:20005",
+        "tcp://127.0.0.1:20006",
+        "tcp://127.0.0.1:20007",
+        "tcp://127.0.0.1:20008",
+        "tcp://127.0.0.1:20009",
+        "tcp://127.0.0.1:20010",
+    ]
 
-    router_list = ["tcp://127.0.0.1:20001", "tcp://127.0.0.1:20002"]
+    for _ in range(num_nodes):
+        nodes.append(
+            Node(
+                router_bind=f"tcp://127.0.0.1:{router_start}",
+                publisher_bind=f"tcp://127.0.0.1:{publisher_start}",
+            )
+        )
+        router_start += 1
+        publisher_start += 1
 
-    await n1.init_sockets()
-    await n1.start()
-    await n1.peer_discovery(deepcopy(router_list))
-
-    await n2.init_sockets()
-    await n2.start()
-    await n2.peer_discovery(deepcopy(router_list))
-
-    sub = SubscribeToPublisher("tcp://127.0.0.1:21001", "yolo")
-    n2.command(sub)
+    for node in nodes:
+        await node.init_sockets()
+        await node.start()
 
     await asyncio.sleep(2.5)
 
-    while True:
-        dm = DirectMessage(
-            message_type="DirectMessage",
-        )
+    for node in nodes:
+        await node.peer_discovery(deepcopy(router_list))
 
+    # sub = SubscribeToPublisher("tcp://127.0.0.1:21001", "yolo")
+    # n2.command(sub)
+
+    await asyncio.sleep(2.5)
+
+    n1 = nodes[0]
+
+    while True:
         gos = Gossip(
             message_type="Gossip",
         )
 
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
-        n1.command(gos, "tcp://127.0.0.1:20002")
+        random.choice(nodes).command(gos, random.choice(router_list))
+
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
+        # n1.command(gos, "tcp://127.0.0.1:20002")
 
         # pub = PublishMessage(
         #     creator=n1.id,
@@ -78,7 +92,7 @@ async def main():
         # await asyncio.sleep(1)
 
         # print(n2.received_messages)
-        await asyncio.sleep(5)
+        await asyncio.sleep(0.025)
 
 
 async def shutdown(signal, loop):

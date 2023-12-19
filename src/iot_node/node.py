@@ -125,23 +125,31 @@ class Node:
                     sender = self._crypto_keys.ecdsa_dict_to_point(
                         bm.sender_info.sender
                     )
+                    sender_bls_id = "Unknown"
 
                     # Find peers BLS ID based off their ECDSA key
                     for peer in self.peers.values():
                         if sender == peer.ecdsa_public_key:
-                            sender = self._crypto_keys.bls_bytes_to_id(
+                            sender_bls_id = self._crypto_keys.bls_bytes_to_id(
                                 peer.bls_public_key
                             )
+
+                    if sender_bls_id == "Unknown":
+                        print(bm)
+                        print("---------------------")
+                        print(self.peers.values())
                     creator = self._crypto_keys.bls_bytes_to_id(bm.creator)
                     print(
-                        f"[{self.id}] Received BatchedMessage from: {sender} created by {creator}"
+                        f"[{self.id}] Received BatchedMessage from: {sender_bls_id} created by {creator}"
                     )
 
                     for message in bm.messages:
                         asyncio.create_task(self.inbox(message))
             elif msg["message_type"] == "PeerDiscovery":
-                print("Received Peer Discovery Message")
                 key_ex = PeerDiscovery(**msg)
+                print(
+                    f"[{self.id}] Received Peer Discovery Message from {self._crypto_keys.bls_bytes_to_id(key_ex.bls_public_key)}"
+                )
                 asyncio.create_task(self.inbox(key_ex))
             else:
                 print(f"Received unrecognised message: {msg}")
@@ -185,24 +193,27 @@ class Node:
         req.write([message])
 
     async def gossip(self, gossip: Gossip, receiver: str):
-        self.gossip_queue.put(gossip)
+        if receiver != self.router_bind:
+            self.gossip_queue.put(gossip)
 
-        if self.gossip_queue.qsize() >= self.minimum_transactions_to_batch:
-            bmb = BatchedMessageBuilder(
-                message_type="BatchedMessageBuilder",
-                creator=self._crypto_keys.bls_public_key,
-            )
+            if self.gossip_queue.qsize() >= self.minimum_transactions_to_batch:
+                bmb = BatchedMessageBuilder(
+                    message_type="BatchedMessageBuilder",
+                    creator=self._crypto_keys.bls_public_key,
+                )
 
-            while not self.gossip_queue.empty():
-                bmb.messages.append(self.gossip_queue.get())
+                while not self.gossip_queue.empty():
+                    bmb.messages.append(self.gossip_queue.get())
 
-            bmb.sign_messages(self._crypto_keys)
-            bmb.sign_sender(self._crypto_keys)
+                bmb.sign_messages(self._crypto_keys)
+                bmb.sign_sender(self._crypto_keys)
 
-            """
-            TODO: replace with proper AT2 Gossip...
-            """
-            asyncio.create_task(self.direct_message(bmb, receiver))
+                """
+                TODO: replace with proper AT2 Gossip...
+                """
+                asyncio.create_task(self.direct_message(bmb, receiver))
+        else:
+            print("ignore, not sending message to self")
 
     ####################
     # Node 'API'       #
