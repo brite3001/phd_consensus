@@ -18,6 +18,7 @@ from .message_classes import Gossip
 from .message_classes import PeerDiscovery
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
+from logs import get_logger
 
 
 @frozen
@@ -63,6 +64,7 @@ class Node:
     router_bind: str = field(validator=[validators.instance_of(str)])
     publisher_bind: str = field(validator=[validators.instance_of(str)])
     id: str = field(init=False)
+    my_logger = field(init=False)
 
     # {'bls_id': PeerInformation}
     peers: dict = field(factory=dict)
@@ -86,7 +88,7 @@ class Node:
         # print(f"[{self.id}] Received Message")
 
         if isinstance(message, Gossip):
-            print(f"[{self.id}] {message}")
+            self.my_logger.info(message)
             self.received_messages[hash(message)] = message
         elif isinstance(message, PeerDiscovery):
             bls_id = self._crypto_keys.bls_bytes_to_id(message.bls_public_key)
@@ -104,7 +106,7 @@ class Node:
     # Listeners        #
     ####################
     async def router_listener(self):
-        print(f"[{self.id}] Starting Router")
+        self.my_logger.info("Starting Router")
 
         while True:
             if not self.running:
@@ -133,29 +135,24 @@ class Node:
                             sender_bls_id = self._crypto_keys.bls_bytes_to_id(
                                 peer.bls_public_key
                             )
-
-                    if sender_bls_id == "Unknown":
-                        print(bm)
-                        print("---------------------")
-                        print(self.peers.values())
                     creator = self._crypto_keys.bls_bytes_to_id(bm.creator)
-                    print(
-                        f"[{self.id}] Received BatchedMessage from: {sender_bls_id} created by {creator}"
+                    self.my_logger.info(
+                        f"Received BatchedMessage from: {sender_bls_id} created by {creator}"
                     )
 
                     for message in bm.messages:
                         asyncio.create_task(self.inbox(message))
             elif msg["message_type"] == "PeerDiscovery":
                 key_ex = PeerDiscovery(**msg)
-                print(
-                    f"[{self.id}] Received Peer Discovery Message from {self._crypto_keys.bls_bytes_to_id(key_ex.bls_public_key)}"
+                self.my_logger.info(
+                    f"Received Peer Discovery Message from {self._crypto_keys.bls_bytes_to_id(key_ex.bls_public_key)}"
                 )
                 asyncio.create_task(self.inbox(key_ex))
             else:
-                print(f"Received unrecognised message: {msg}")
+                self.my_logger.info(f"Received unrecognised message: {msg}")
 
     async def subscriber_listener(self):
-        print(f"[{self.id}] Starting Subscriber")
+        self.my_logger.info("Starting Subscriber")
 
         while True:
             if not self.running:
@@ -170,7 +167,7 @@ class Node:
             if message["message_type"] == "PublishMessage":
                 message = PublishMessage(**message)
             else:
-                print("Couldnt find matching class for message!!")
+                self.my_logger.warning("Couldnt find matching class for message!!")
 
             asyncio.create_task(self.inbox(message, meta_data))
 
@@ -181,7 +178,7 @@ class Node:
         message = json.dumps(asdict(pub)).encode()
 
         self._publisher.write([pub.topic.encode(), message])
-        print(f"[{self.id}] Published Message {hash(pub)}")
+        self.my_logger.info(f"Published Message {hash(pub)}")
 
     async def direct_message(self, message: Type[DirectMessage], receiver: str):
         assert issubclass(type(message), DirectMessage)
@@ -213,7 +210,7 @@ class Node:
                 """
                 asyncio.create_task(self.direct_message(bmb, receiver))
         else:
-            print("ignore, not sending message to self")
+            self.my_logger.warning("ignore, not sending message to self")
 
     ####################
     # Node 'API'       #
@@ -230,7 +227,7 @@ class Node:
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.direct_message(command_obj, receiver))
         else:
-            print(f"Unrecognised command object: {command_obj}")
+            self.my_logger.warning(f"Unrecognised command object: {command_obj}")
 
     ####################
     # Helper Functions #
@@ -254,7 +251,7 @@ class Node:
         self._subscriber.transport.connect(s2p.publisher)
         self._subscriber.transport.subscribe(s2p.topic)
 
-        print(f"[{self.id}] Successfully subscribed to {s2p.publisher}")
+        self.my_logger.info(f"Successfully subscribed to {s2p.publisher}")
 
     async def unsubscribe(self, unsub: UnsubscribeFromTopic):
         self._subscriber.transport.unsubscribe(unsub.topic)
@@ -287,7 +284,9 @@ class Node:
 
         self.id = self._crypto_keys.bls_bytes_to_id(self._crypto_keys.bls_public_key)
 
-        print(f"[{self.id}] Started PUB/SUB Sockets")
+        self.my_logger = get_logger(self.id)
+
+        self.my_logger.info("Started PUB/SUB Sockets")
 
     def stop(self):
         self.running = False
