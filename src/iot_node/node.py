@@ -8,6 +8,7 @@ import aiozmq
 import zmq
 import json
 import secrets
+import random
 from queue import Queue
 
 from .message_classes import DirectMessage
@@ -60,14 +61,23 @@ class PeerInformation:
 
 
 @define
+class PeerSocket:
+    router_address: str = field(validator=[validators.instance_of(str)])
+    bls_id: str = field(validator=[validators.instance_of(str)])
+    socket: aiozmq.ZmqStream = field(
+        validator=[validators.instance_of(aiozmq.ZmqStream)]
+    )
+
+
+@define
 class Node:
     router_bind: str = field(validator=[validators.instance_of(str)])
     publisher_bind: str = field(validator=[validators.instance_of(str)])
     id: str = field(init=False)
     my_logger = field(init=False)
 
-    # {'bls_id': PeerInformation}
-    peers: dict = field(factory=dict)
+    peers: dict[str, PeerInformation] = field(factory=dict)
+    sockets: list[PeerSocket] = field(factory=list)
 
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
     _publisher: aiozmq.stream.ZmqStream = field(init=False)
@@ -101,6 +111,11 @@ class Node:
                 message.router_address,
                 message.publisher_address,
             )
+
+            req = await aiozmq.create_zmq_stream(zmq.REQ)
+            await req.transport.connect(message.router_address)
+
+            self.sockets.append(PeerSocket(message.router_address, bls_id, req))
 
     ####################
     # Listeners        #
@@ -151,6 +166,8 @@ class Node:
             else:
                 self.my_logger.info(f"Received unrecognised message: {msg}")
 
+            self._router.write([recv[0], b"", b"OK"])
+
     async def subscriber_listener(self):
         self.my_logger.info("Starting Subscriber")
 
@@ -180,37 +197,38 @@ class Node:
         self._publisher.write([pub.topic.encode(), message])
         self.my_logger.info(f"Published Message {hash(pub)}")
 
-    async def direct_message(self, message: Type[DirectMessage], receiver: str):
+    async def direct_message(self, message: Type[DirectMessage], receiver=""):
         assert issubclass(type(message), DirectMessage)
 
-        req = await aiozmq.create_zmq_stream(zmq.REQ)
-        await req.transport.connect(receiver)
-        message = json.dumps(asdict(message)).encode()
+        if len(receiver) == 0:
+            peer_socket = random.choice(self.sockets)
+            req = peer_socket.socket
+        else:
+            req = await aiozmq.create_zmq_stream(zmq.REQ)
+            await req.transport.connect(receiver)
 
+        message = json.dumps(asdict(message)).encode()
         req.write([message])
 
-    async def gossip(self, gossip: Gossip, receiver: str):
-        if receiver != self.router_bind:
-            self.gossip_queue.put(gossip)
+    async def gossip(self, gossip: Gossip):
+        self.gossip_queue.put(gossip)
 
-            if self.gossip_queue.qsize() >= self.minimum_transactions_to_batch:
-                bmb = BatchedMessageBuilder(
-                    message_type="BatchedMessageBuilder",
-                    creator=self._crypto_keys.bls_public_key,
-                )
+        if self.gossip_queue.qsize() >= self.minimum_transactions_to_batch:
+            bmb = BatchedMessageBuilder(
+                message_type="BatchedMessageBuilder",
+                creator=self._crypto_keys.bls_public_key,
+            )
 
-                while not self.gossip_queue.empty():
-                    bmb.messages.append(self.gossip_queue.get())
+            while not self.gossip_queue.empty():
+                bmb.messages.append(self.gossip_queue.get())
 
-                bmb.sign_messages(self._crypto_keys)
-                bmb.sign_sender(self._crypto_keys)
+            bmb.sign_messages(self._crypto_keys)
+            bmb.sign_sender(self._crypto_keys)
 
-                """
-                TODO: replace with proper AT2 Gossip...
-                """
-                asyncio.create_task(self.direct_message(bmb, receiver))
-        else:
-            self.my_logger.warning("ignore, not sending message to self")
+            """
+            TODO: replace with proper AT2 Gossip...
+            """
+            asyncio.create_task(self.direct_message(bmb))
 
     ####################
     # Node 'API'       #
@@ -219,7 +237,7 @@ class Node:
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
         elif isinstance(command_obj, Gossip):
-            asyncio.create_task(self.gossip(command_obj, receiver))
+            asyncio.create_task(self.gossip(command_obj))
         elif isinstance(command_obj, PublishMessage):
             asyncio.create_task(self.publish(command_obj))
         elif isinstance(command_obj, UnsubscribeFromTopic):
@@ -251,7 +269,9 @@ class Node:
         self._subscriber.transport.connect(s2p.publisher)
         self._subscriber.transport.subscribe(s2p.topic)
 
-        self.my_logger.info(f"Successfully subscribed to {s2p.publisher}")
+        self.my_logger.info(
+            "Successfully Subscribed", extra={"published": s2p.publisher}
+        )
 
     async def unsubscribe(self, unsub: UnsubscribeFromTopic):
         self._subscriber.transport.unsubscribe(unsub.topic)
@@ -286,7 +306,7 @@ class Node:
 
         self.my_logger = get_logger(self.id)
 
-        self.my_logger.info("Started PUB/SUB Sockets")
+        self.my_logger.info("Started PUB/SUB Sockets", extra={"published": "aaaa"})
 
     def stop(self):
         self.running = False
@@ -296,6 +316,6 @@ class Node:
 
     async def start(self):
         self.running = True
-        self.minimum_transactions_to_batch = 5
+        self.minimum_transactions_to_batch = 2
         asyncio.create_task(self.router_listener())
         asyncio.create_task(self.subscriber_listener())

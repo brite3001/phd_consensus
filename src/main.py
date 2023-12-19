@@ -1,7 +1,6 @@
 from copy import deepcopy
 import asyncio
 import signal
-import logging
 import uvloop
 import random
 
@@ -10,12 +9,9 @@ from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.message_classes import DirectMessage
 from iot_node.message_classes import PublishMessage
 from iot_node.message_classes import Gossip
+from logs import get_logger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s,%(msecs)d %(levelname)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+logging = get_logger("runner")
 
 
 async def main():
@@ -68,7 +64,7 @@ async def main():
             message_type="Gossip",
         )
 
-        random.choice(nodes).command(gos, random.choice(router_list))
+        n1.command(gos)
 
         # n1.command(gos, "tcp://127.0.0.1:20002")
         # n1.command(gos, "tcp://127.0.0.1:20002")
@@ -92,7 +88,7 @@ async def main():
         # await asyncio.sleep(1)
 
         # print(n2.received_messages)
-        await asyncio.sleep(0.025)
+        await asyncio.sleep(0.05)
 
 
 async def shutdown(signal, loop):
