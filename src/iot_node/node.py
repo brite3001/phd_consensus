@@ -72,10 +72,12 @@ class Node:
     _router: aiozmq.stream.ZmqStream = field(init=False)
     _crypto_keys: CryptoKeys = field(init=False)
 
-    minimum_transactions_to_batch: int = field(factory=int)
     gossip_queue: Queue = field(factory=Queue)
     received_messages: dict = field(factory=dict)
     running: bool = field(factory=bool)
+
+    # Tuneable Values
+    minimum_transactions_to_batch: int = field(factory=int)
 
     ####################
     # Inbox            #
@@ -120,7 +122,16 @@ class Node:
                 msg_sig_check, sender_sig_check = bm.verify_signatures()
 
                 if msg_sig_check and sender_sig_check:
-                    sender = self._crypto_keys.ecdsa_dict_to_id(bm.sender_info.sender)
+                    sender = self._crypto_keys.ecdsa_dict_to_point(
+                        bm.sender_info.sender
+                    )
+
+                    # Find peers BLS ID based off their ECDSA key
+                    for peer in self.peers.values():
+                        if sender == peer.ecdsa_public_key:
+                            sender = self._crypto_keys.bls_bytes_to_id(
+                                peer.bls_public_key
+                            )
                     creator = self._crypto_keys.bls_bytes_to_id(bm.creator)
                     print(
                         f"[{self.id}] Received BatchedMessage from: {sender} created by {creator}"
