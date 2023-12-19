@@ -64,7 +64,9 @@ async def main():
             message_type="Gossip",
         )
 
-        n1.command(gos)
+        dm = DirectMessage("DirectMessage")
+
+        n1.command(dm)
 
         # n1.command(gos, "tcp://127.0.0.1:20002")
         # n1.command(gos, "tcp://127.0.0.1:20002")

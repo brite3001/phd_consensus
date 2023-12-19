@@ -116,6 +116,9 @@ class Node:
             await req.transport.connect(message.router_address)
 
             self.sockets.append(PeerSocket(message.router_address, bls_id, req))
+        elif isinstance(message, DirectMessage):
+            print("aaa")
+            self.my_logger.info(message)
 
     ####################
     # Listeners        #
@@ -233,7 +236,7 @@ class Node:
     ####################
     # Node 'API'       #
     ####################
-    def command(self, command_obj, receiver=None):
+    def command(self, command_obj, receiver=""):
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
         elif isinstance(command_obj, Gossip):
@@ -316,6 +319,6 @@ class Node:
 
     async def start(self):
         self.running = True
-        self.minimum_transactions_to_batch = 2
+        self.minimum_transactions_to_batch = 5
         asyncio.create_task(self.router_listener())
         asyncio.create_task(self.subscriber_listener())
