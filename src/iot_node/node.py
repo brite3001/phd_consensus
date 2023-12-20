@@ -233,6 +233,62 @@ class Node:
             """
             asyncio.create_task(self.direct_message(bmb))
 
+            # setup variables
+            """
+            Subscribing and sample sizes
+            echo_subscribe / echo_sample_size
+            ready_subscribe / ready_sample_size / delivery_sample_size
+
+            # Thresholds
+            ready_threshold
+            feedback_threshold
+            delivery_threshold
+
+            
+            # Echo responses
+            replies_echo
+            replies_ready
+            replies_deliery    
+            """
+
+            # Algorithm (Sender)
+            """
+            Setup
+            1) Create an echo_subscribe group of size echo_sample_size
+            2) Subscribe to the publisher of all nodes in echo_subscribe
+            3) Send all nodes in echo_subscribe an EchoSubscribe message
+
+            3) Create a ready_subscribe group of size ready_sample_size
+            4) Subscribe to the publisher of all nodes in ready_subscribe
+            5) Send all nodes in ready_subscribe a ReadySubscribe message
+
+            5) Send the message to all nodes in echo_subscribe group
+
+            6) Send a READY message if either:
+            6a) you receive at least ready_threshold Echo messages from your echo_subscribe group
+            6b) you receive at least feed_back threshold Ready messages from your ready_subscribe group
+
+            7) once you receive at least delivery_sample_size Ready messages, the message is considered Delivered
+            """
+
+            # Algorithm (Gossiper)
+            """
+            Basically same as above, except a little check is added which may avoid sending the message again.
+            When sending an EchoSubscribe message and a ReadySubscribe message, if the nodes in your echo_subscribe
+            and ready_subscribe groups have already reached the
+            ready_threshold and the feedback_threshold, the node will again broadcast an Echo or Ready message.
+
+            Node receives lots of Ready Messages
+            If the gossiping node receives feedback_threshold number of Ready messages, they'll also send out a
+            Ready message. If they receive delivery_threshold number of messages, the node will just immediately
+            Deliver the message to the application.
+
+            Node receives few Ready messages
+            If the node doesn't hit the feedback threshold for their ready_subscribe group when sending a 
+            ReadySubscribe message, the node will send the orginal message and gossip it.
+
+            """
+
     ####################
     # Node 'API'       #
     ####################
