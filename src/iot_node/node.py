@@ -239,16 +239,18 @@ class Node:
             echo_subscribe / echo_sample_size
             ready_subscribe / ready_sample_size / delivery_sample_size
 
-            # Thresholds
+            Thresholds
             ready_threshold
             feedback_threshold
             delivery_threshold
 
             
-            # Echo responses
+            Echo responses
             replies_echo
             replies_ready
-            replies_deliery    
+            replies_deliery
+
+            Message index    
             """
 
             # Algorithm (Sender)
@@ -262,13 +264,14 @@ class Node:
             4) Subscribe to the publisher of all nodes in ready_subscribe
             5) Send all nodes in ready_subscribe a ReadySubscribe message
 
-            5) Send the message to all nodes in echo_subscribe group
+            6) Increment the message index
+            7) Send the message to all nodes in echo_subscribe group
 
-            6) Send a READY message if either:
-            6a) you receive at least ready_threshold Echo messages from your echo_subscribe group
-            6b) you receive at least feed_back threshold Ready messages from your ready_subscribe group
+            8) Send a READY message if either:
+            8a) you receive at least ready_threshold Echo messages from your echo_subscribe group
+            8b) you receive at least feed_back threshold Ready messages from your ready_subscribe group
 
-            7) once you receive at least delivery_sample_size Ready messages, the message is considered Delivered
+            9) once you receive at least delivery_sample_size Ready messages, the message is considered Delivered
             """
 
             # Algorithm (Gossiper)
@@ -285,7 +288,8 @@ class Node:
 
             Node receives few Ready messages
             If the node doesn't hit the feedback threshold for their ready_subscribe group when sending a 
-            ReadySubscribe message, the node will send the orginal message and gossip it.
+            ReadySubscribe message, the node will send the orginal message and gossip it. The gossiper
+            will not increment the message index, they'll maintain the index chosen by the creator
 
             """
 
