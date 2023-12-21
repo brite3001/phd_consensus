@@ -29,13 +29,11 @@ class AT2Configuration:
         # make sure ready_threshold is at least 51% of the sample size
         assert self.ready_threshold >= (ceil(self.echo_sample_size) / 2) + 1
 
-        # Make sure the feedback_threshold is 80%
+        # Make sure the feedback_threshold is at least 75%
         assert self.feedback_threshold >= ceil(self.ready_sample_size * 0.75)
 
-        # Make sure the delivery_threshold is 90%
-        assert self.delivery_threshold >= ceil(self.delivery_threshold * 0.9)
+        # Make sure the delivery_threshold is at least 85%
+        assert self.delivery_threshold >= ceil(self.delivery_threshold * 0.85)
 
 
-aaa = AT2Configuration(10, 10, 10, 6, 8, 9)
-
-print(aaa)
+# aaa = AT2Configuration(10, 10, 10, 6, 8, 9)

@@ -19,6 +19,7 @@ from .message_classes import Gossip
 from .message_classes import PeerDiscovery
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
+from .at2_classes import AT2Configuration
 from logs import get_logger
 
 
@@ -73,6 +74,9 @@ class PeerSocket:
 class Node:
     router_bind: str = field(validator=[validators.instance_of(str)])
     publisher_bind: str = field(validator=[validators.instance_of(str)])
+    at2_config: AT2Configuration = field(
+        validator=[validators.instance_of(AT2Configuration)]
+    )
     id: str = field(init=False)
     my_logger = field(init=False)
 
@@ -138,7 +142,9 @@ class Node:
                 dm = DirectMessage(**msg)
                 asyncio.create_task(self.inbox(dm))
             elif msg["message_type"] == "BatchedMessageBuilder":
+                print(msg)
                 bm = BatchedMessages(**msg)
+                self.my_logger.info(bm)
                 msg_sig_check, sender_sig_check = bm.verify_signatures()
 
                 if msg_sig_check and sender_sig_check:
@@ -233,6 +239,16 @@ class Node:
             """
             asyncio.create_task(self.direct_message(bmb))
 
+            batched_message_hash = hash(BatchedMessages(**asdict(bmb)))
+            self.my_logger.info(batched_message_hash)
+            # echo_subscribe = random.sample(self.peers, self.at2_config.echo_sample_size)
+            # ready_subscribe = random.sample(
+            #     self.peers, self.at2_config.ready_sample_size
+            # )
+
+            # for peer in echo_subscribe:
+            #     self.subscribe(peer, batched_message_hash.encode())
+
             # setup variables
             """
             Subscribing and sample sizes
@@ -271,7 +287,7 @@ class Node:
             8a) you receive at least ready_threshold Echo messages from your echo_subscribe group
             8b) you receive at least feed_back threshold Ready messages from your ready_subscribe group
 
-            9) once you receive at least delivery_sample_size Ready messages, the message is considered Delivered
+            10) once you receive at least delivery_sample_size Ready messages, the message is considered Delivered
             """
 
             # Algorithm (Gossiper)
@@ -290,7 +306,6 @@ class Node:
             If the node doesn't hit the feedback threshold for their ready_subscribe group when sending a 
             ReadySubscribe message, the node will send the orginal message and gossip it. The gossiper
             will not increment the message index, they'll maintain the index chosen by the creator
-
             """
 
     ####################
@@ -328,12 +343,14 @@ class Node:
         for ip in routers:
             asyncio.create_task(self.direct_message(pd, ip))
 
-    async def subscribe(self, s2p: SubscribeToPublisher):
-        self._subscriber.transport.connect(s2p.publisher)
-        self._subscriber.transport.subscribe(s2p.topic)
+    async def subscribe(self, peer_info: PeerInformation, topic: bytes):
+        assert isinstance(peer_info, PeerInformation)
+        assert isinstance(topic, bytes)
+        self._subscriber.transport.connect(peer_info.publisher_address)
+        self._subscriber.transport.subscribe(topic)
 
         self.my_logger.info(
-            "Successfully Subscribed", extra={"published": s2p.publisher}
+            f"Successfully Subscribed to {peer_info.publisher_address}/{topic}"
         )
 
     async def unsubscribe(self, unsub: UnsubscribeFromTopic):

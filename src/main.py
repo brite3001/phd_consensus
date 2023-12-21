@@ -9,6 +9,7 @@ from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.message_classes import DirectMessage
 from iot_node.message_classes import PublishMessage
 from iot_node.message_classes import Gossip
+from iot_node.at2_classes import AT2Configuration
 from logs import get_logger
 
 logging = get_logger("runner")
@@ -19,6 +20,8 @@ async def main():
     publisher_start = 21001
     nodes = []
     num_nodes = 10
+
+    at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
 
     router_list = [
         "tcp://127.0.0.1:20001",
@@ -38,6 +41,7 @@ async def main():
             Node(
                 router_bind=f"tcp://127.0.0.1:{router_start}",
                 publisher_bind=f"tcp://127.0.0.1:{publisher_start}",
+                at2_config=at2_config,
             )
         )
         router_start += 1
@@ -66,7 +70,7 @@ async def main():
 
         dm = DirectMessage("DirectMessage")
 
-        n1.command(dm)
+        n1.command(gos)
 
         # n1.command(gos, "tcp://127.0.0.1:20002")
         # n1.command(gos, "tcp://127.0.0.1:20002")
@@ -90,7 +94,7 @@ async def main():
         # await asyncio.sleep(1)
 
         # print(n2.received_messages)
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(1)
 
 
 async def shutdown(signal, loop):

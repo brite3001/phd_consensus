@@ -1,7 +1,7 @@
 from attrs import frozen, field, validators, asdict, define
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import ecdsa, point
-from typing import List
+from typing import List, Union
 from time import time
 import json
 import base64
@@ -23,7 +23,6 @@ class SenderInformation:
 
 @frozen
 class PublishMessage:
-    message: str = field(validator=[validators.instance_of(str)])
     message_type: str = field(validator=[validators.instance_of(str)])
     topic: str = field(validator=[validators.instance_of(str)])
 
@@ -64,6 +63,19 @@ def sender_dict_to_object(x: dict) -> SenderInformation:
 
 def gossip_dict_to_object(x: dict) -> list[DirectMessage]:
     return [Gossip(**g) for g in x]
+
+
+# These classes are used for the AT2 protocol messages
+
+
+@frozen
+class EchoSubscribe(PublishMessage):
+    message_hash: str = field(validator=[validators.instance_of(str)])
+
+
+@frozen
+class ReadySubscribe(PublishMessage):
+    message_hash: str = field(validator=[validators.instance_of(str)])
 
 
 # Used on the senders side, builds a BatchedMessage from multiple DirectMessages
@@ -123,7 +135,9 @@ class BatchedMessages:
     messages: List[DirectMessage] = field(converter=gossip_dict_to_object)
     sender_info: SenderInformation = field(converter=sender_dict_to_object)
     aggregated_signature: bytes = field(converter=base64_to_bytes)
-    sender_signature: list = field(validator=[validators.instance_of(list)])
+    sender_signature: list = field(
+        validator=[validators.instance_of(Union[list, tuple])]
+    )
     batched: bool = field(validator=[validators.instance_of(bool)])
     message_type: str = field(validator=[validators.instance_of(str)])
 
