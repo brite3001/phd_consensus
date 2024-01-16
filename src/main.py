@@ -21,7 +21,8 @@ async def main():
     nodes = []
     num_nodes = 10
 
-    at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
+    # at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
+    at2_config = AT2Configuration(7, 7, 7, 5, 6, 7)
 
     router_list = [
         "tcp://127.0.0.1:20001",
@@ -59,7 +60,7 @@ async def main():
     # sub = SubscribeToPublisher("tcp://127.0.0.1:21001", "yolo")
     # n2.command(sub)
 
-    await asyncio.sleep(2.5)
+    await asyncio.sleep(1)
 
     n1 = nodes[0]
 
@@ -68,7 +69,7 @@ async def main():
             message_type="Gossip",
         )
 
-        dm = DirectMessage("DirectMessage")
+        # dm = DirectMessage("DirectMessage")
 
         n1.command(gos)
 

@@ -29,14 +29,14 @@ class CryptoKeys:
     ecdsa_public_key: point.Point = field(
         validator=[validators.instance_of(point.Point)]
     )
-    ecdsa_public_key_dict: dict = field(validator=[validators.instance_of(dict)])
+    ecdsa_public_key_tuple: tuple = field(validator=[validators.instance_of(tuple)])
 
     bls_private_key: int = field(validator=[validators.instance_of(int)])
     bls_public_key: bytes = field(validator=[validators.instance_of(bytes)])
     bls_public_key_string: str = field(validator=[validators.instance_of(str)])
 
-    def ecdsa_dict_to_point(self, ecdsa_dict: dict) -> point.Point:
-        return point.Point(ecdsa_dict["x"], ecdsa_dict["y"])
+    def ecdsa_tuple_to_point(self, ecdsa_tuple: tuple) -> point.Point:
+        return point.Point(ecdsa_tuple[0], ecdsa_tuple[1])
 
     def ecdsa_dict_to_id(self, ecdsa_dict: dict) -> str:
         return str(hash(json.dumps(ecdsa_dict)))[:3]
@@ -95,6 +95,11 @@ class Node:
     # Tuneable Values
     minimum_transactions_to_batch: int = field(factory=int)
 
+    # SBRB Specific Variables
+    _echo_replies: dict[
+        str, str
+    ] = {}  # {message_hash: [node_ids that have send an echo reply]}
+
     ####################
     # Inbox            #
     ####################
@@ -106,7 +111,7 @@ class Node:
             self.received_messages[hash(message)] = message
         elif isinstance(message, PeerDiscovery):
             bls_id = self._crypto_keys.bls_bytes_to_id(message.bls_public_key)
-            ecdsa_point = self._crypto_keys.ecdsa_dict_to_point(
+            ecdsa_point = self._crypto_keys.ecdsa_tuple_to_point(
                 message.ecdsa_public_key
             )
             self.peers[bls_id] = PeerInformation(
@@ -148,7 +153,7 @@ class Node:
                 msg_sig_check, sender_sig_check = bm.verify_signatures()
 
                 if msg_sig_check and sender_sig_check:
-                    sender = self._crypto_keys.ecdsa_dict_to_point(
+                    sender = self._crypto_keys.ecdsa_tuple_to_point(
                         bm.sender_info.sender
                     )
                     sender_bls_id = "Unknown"
@@ -223,28 +228,35 @@ class Node:
         self.gossip_queue.put(gossip)
 
         if self.gossip_queue.qsize() >= self.minimum_transactions_to_batch:
+            messages_list = []
             bmb = BatchedMessageBuilder(
                 message_type="BatchedMessageBuilder",
                 creator=self._crypto_keys.bls_public_key,
             )
 
             while not self.gossip_queue.empty():
-                bmb.messages.append(self.gossip_queue.get())
+                messages_list.append(self.gossip_queue.get())
 
+            bmb.messages = tuple(messages_list)
             bmb.sign_messages(self._crypto_keys)
             bmb.sign_sender(self._crypto_keys)
 
             """
             TODO: replace with proper AT2 Gossip...
             """
-            asyncio.create_task(self.direct_message(bmb))
+            # asyncio.create_task(self.direct_message(bmb))
 
-            batched_message_hash = hash(BatchedMessages(**asdict(bmb)))
+            batched_message_hash = BatchedMessages(**asdict(bmb))
             self.my_logger.info(batched_message_hash)
-            # echo_subscribe = random.sample(self.peers, self.at2_config.echo_sample_size)
-            # ready_subscribe = random.sample(
-            #     self.peers, self.at2_config.ready_sample_size
-            # )
+            echo_subscribe = random.sample(
+                list(self.peers), self.at2_config.echo_sample_size
+            )
+            ready_subscribe = random.sample(
+                list(self.peers), self.at2_config.ready_sample_size
+            )
+
+            print(echo_subscribe)
+            print(ready_subscribe)
 
             # for peer in echo_subscribe:
             #     self.subscribe(peer, batched_message_hash.encode())
@@ -262,9 +274,9 @@ class Node:
 
             
             Echo responses
-            replies_echo
-            replies_ready
-            replies_deliery
+            echo_replies
+            ready_replies
+            delivery_replies
 
             Message index    
             """
@@ -285,7 +297,7 @@ class Node:
 
             8) Send a READY message if either:
             8a) you receive at least ready_threshold Echo messages from your echo_subscribe group
-            8b) you receive at least feed_back threshold Ready messages from your ready_subscribe group
+            8b) you receive at least feedback threshold Ready messages from your ready_subscribe group
 
             10) once you receive at least delivery_sample_size Ready messages, the message is considered Delivered
             """
@@ -333,7 +345,7 @@ class Node:
         pd = PeerDiscovery(
             message_type="PeerDiscovery",
             bls_public_key=self._crypto_keys.bls_public_key,
-            ecdsa_public_key=self._crypto_keys.ecdsa_public_key_dict,
+            ecdsa_public_key=self._crypto_keys.ecdsa_public_key_tuple,
             router_address=self.router_bind,
             publisher_address=self.publisher_bind,
         )
@@ -365,9 +377,7 @@ class Node:
 
         ecdsa_private_key = keys.gen_private_key(curve.P256)
         ecdsa_public_key = keys.get_public_key(ecdsa_private_key, curve.P256)
-        ecdsa_public_key_dict = {}
-        ecdsa_public_key_dict["x"] = ecdsa_public_key.x
-        ecdsa_public_key_dict["y"] = ecdsa_public_key.y
+        ecdsa_public_key_tuple = (ecdsa_public_key.x, ecdsa_public_key.y)
 
         bls_private_key = secrets.randbits(128)
         bls_public_key = bls_pop.SkToPk(bls_private_key)
@@ -376,7 +386,7 @@ class Node:
         self._crypto_keys = CryptoKeys(
             ecdsa_private_key,
             ecdsa_public_key,
-            ecdsa_public_key_dict,
+            ecdsa_public_key_tuple,
             bls_private_key,
             bls_public_key,
             bls_public_key_string,

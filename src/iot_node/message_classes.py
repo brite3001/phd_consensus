@@ -1,7 +1,7 @@
 from attrs import frozen, field, validators, asdict, define
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import ecdsa, point
-from typing import List, Union
+from typing import List, Union, Tuple
 from time import time
 import json
 import base64
@@ -17,7 +17,7 @@ def bytes_to_base64(x: bytes):
 
 @frozen
 class SenderInformation:
-    sender: dict = field(validator=[validators.instance_of(dict)])  # ECDSA pubkey
+    sender: tuple = field(validator=[validators.instance_of(tuple)])  # ECDSA pubkey
     root_hash: str = field(validator=[validators.instance_of(str)])
 
 
@@ -35,7 +35,7 @@ class DirectMessage:
 @frozen
 class PeerDiscovery(DirectMessage):
     bls_public_key: str = field(converter=bytes_to_base64)
-    ecdsa_public_key: dict = field(validator=[validators.instance_of(dict)])
+    ecdsa_public_key: tuple = field(converter=tuple)
     router_address: str = field(validator=[validators.instance_of(str)])
     publisher_address: str = field(validator=[validators.instance_of(str)])
 
@@ -62,7 +62,7 @@ def sender_dict_to_object(x: dict) -> SenderInformation:
 
 
 def gossip_dict_to_object(x: dict) -> list[DirectMessage]:
-    return [Gossip(**g) for g in x]
+    return (Gossip(**g) for g in x)
 
 
 # These classes are used for the AT2 protocol messages
@@ -121,7 +121,7 @@ class BatchedMessageBuilder(DirectMessage):
 
         mtree = MerkleTree([str(hash(x)) for x in self.messages])
 
-        self.sender_info = SenderInformation(keys.ecdsa_public_key_dict, mtree.root)
+        self.sender_info = SenderInformation(keys.ecdsa_public_key_tuple, mtree.root)
         sender_bytes = json.dumps(asdict(self.sender_info)).encode()
 
         self.sender_signature = ecdsa.sign(sender_bytes, keys.ecdsa_private_key)
@@ -132,7 +132,7 @@ class BatchedMessageBuilder(DirectMessage):
 @frozen
 class BatchedMessages:
     creator: str = field(converter=base64_to_bytes)  # BLS pubkey
-    messages: List[DirectMessage] = field(converter=gossip_dict_to_object)
+    messages: Tuple[DirectMessage] = field(converter=gossip_dict_to_object)
     sender_info: SenderInformation = field(converter=sender_dict_to_object)
     aggregated_signature: bytes = field(converter=base64_to_bytes)
     sender_signature: list = field(
