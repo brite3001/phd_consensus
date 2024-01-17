@@ -61,8 +61,8 @@ def sender_dict_to_object(x: dict) -> SenderInformation:
     return SenderInformation(**x)
 
 
-def gossip_dict_to_object(x: dict) -> list[DirectMessage]:
-    return (Gossip(**g) for g in x)
+def gossip_dict_to_object(x: tuple) -> tuple[DirectMessage]:
+    return tuple(Gossip(**g) for g in x)
 
 
 # These classes are used for the AT2 protocol messages
@@ -82,7 +82,7 @@ class ReadySubscribe(PublishMessage):
 @define
 class BatchedMessageBuilder(DirectMessage):
     creator: str = field(converter=bytes_to_base64)  # BLS pubkey
-    messages: List[DirectMessage] = field(factory=list)
+    messages: Tuple[DirectMessage] = field(init=False)
     aggregated_signature: str = field(init=False)
 
     sender_signature: str = field(init=False)

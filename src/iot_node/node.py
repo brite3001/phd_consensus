@@ -237,7 +237,11 @@ class Node:
             while not self.gossip_queue.empty():
                 messages_list.append(self.gossip_queue.get())
 
-            bmb.messages = tuple(messages_list)
+            bmb.messages = (
+                Gossip(message_type="Gossip"),
+                Gossip(message_type="Gossip"),
+                Gossip(message_type="Gossip"),
+            )
             bmb.sign_messages(self._crypto_keys)
             bmb.sign_sender(self._crypto_keys)
 
