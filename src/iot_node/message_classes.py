@@ -69,13 +69,18 @@ def gossip_dict_to_object(x: tuple) -> tuple[DirectMessage]:
 
 
 @frozen
-class EchoSubscribe(PublishMessage):
-    message_hash: str = field(validator=[validators.instance_of(str)])
+class EchoSubscribe(DirectMessage):
+    message_hash: int = field(validator=[validators.instance_of(int)])
 
+    def sign_message(self, keys):
+        # The sender part is signed with the ECDSA private key
+        assert self.message_type
+        assert self.topic
+        assert self.message_hash
 
-@frozen
-class ReadySubscribe(PublishMessage):
-    message_hash: str = field(validator=[validators.instance_of(str)])
+        message_bytes = self.message_type + self.topic + self.message_hash
+
+        return ecdsa.sign(message_bytes, keys.ecdsa_private_key)
 
 
 # Used on the senders side, builds a BatchedMessage from multiple DirectMessages

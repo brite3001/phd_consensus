@@ -1,7 +1,7 @@
 from attrs import define, field, asdict, frozen, validators
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import curve, keys, point
-from typing import Union, Type
+from typing import Type
 import base64
 import asyncio
 import aiozmq
@@ -9,6 +9,7 @@ import zmq
 import json
 import secrets
 import random
+import hashlib
 from queue import Queue
 
 from .message_classes import DirectMessage
@@ -17,6 +18,7 @@ from .message_classes import BatchedMessages
 from .message_classes import BatchedMessageBuilder
 from .message_classes import Gossip
 from .message_classes import PeerDiscovery
+from .message_classes import EchoSubscribe
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 from .at2_classes import AT2Configuration
@@ -109,6 +111,8 @@ class Node:
         if isinstance(message, Gossip):
             self.my_logger.info(message)
             self.received_messages[hash(message)] = message
+        elif isinstance(message, EchoSubscribe):
+            print(message)
         elif isinstance(message, PeerDiscovery):
             bls_id = self._crypto_keys.bls_bytes_to_id(message.bls_public_key)
             ecdsa_point = self._crypto_keys.ecdsa_tuple_to_point(
@@ -177,6 +181,9 @@ class Node:
                     f"Received Peer Discovery Message from {self._crypto_keys.bls_bytes_to_id(key_ex.bls_public_key)}"
                 )
                 asyncio.create_task(self.inbox(key_ex))
+            elif msg["message_type"] == "EchoSubscribe":
+                es = EchoSubscribe(**msg)
+                asyncio.create_task(self.inbox(es))
             else:
                 self.my_logger.info(f"Received unrecognised message: {msg}")
 
@@ -191,16 +198,15 @@ class Node:
 
             recv = await self._subscriber.read()
 
-            topic, message, meta_data = recv
+            topic, message = recv
             message = json.loads(message.decode())
-            meta_data = json.loads(meta_data.decode())
 
             if message["message_type"] == "PublishMessage":
                 message = PublishMessage(**message)
             else:
                 self.my_logger.warning("Couldnt find matching class for message!!")
 
-            asyncio.create_task(self.inbox(message, meta_data))
+            asyncio.create_task(self.inbox(message))
 
     ####################
     # Message Sending  #
@@ -224,6 +230,9 @@ class Node:
         message = json.dumps(asdict(message)).encode()
         req.write([message])
 
+    ####################
+    # AT2 Consensus    #
+    ####################
     async def gossip(self, gossip: Gossip):
         self.gossip_queue.put(gossip)
 
@@ -250,17 +259,34 @@ class Node:
             """
             # asyncio.create_task(self.direct_message(bmb))
 
-            batched_message_hash = BatchedMessages(**asdict(bmb))
-            self.my_logger.info(batched_message_hash)
+            batched_message_hash = hash(BatchedMessages(**asdict(bmb)))
+            batched_message_bytes = batched_message_hash.to_bytes(
+                length=len(str(batched_message_hash)), byteorder="big", signed=True
+            )
+
+            # Part 1
+            self.my_logger.info(batched_message_bytes)
             echo_subscribe = random.sample(
                 list(self.peers), self.at2_config.echo_sample_size
             )
-            ready_subscribe = random.sample(
-                list(self.peers), self.at2_config.ready_sample_size
-            )
 
-            print(echo_subscribe)
-            print(ready_subscribe)
+            es = EchoSubscribe("EchoSubscribe", batched_message_hash)
+
+            for node in echo_subscribe:
+                asyncio.create_task(
+                    self.direct_message(es, self.peers[node].router_address)
+                )
+
+            # Part 2
+            # for peer_id in echo_subscribe:
+            #     await self.subscribe(self.peers[peer_id], batched_message_bytes)
+
+            # ready_subscribe = random.sample(
+            #     list(self.peers), self.at2_config.ready_sample_size
+            # )
+
+            # print(echo_subscribe)
+            # print(ready_subscribe)
 
             # for peer in echo_subscribe:
             #     self.subscribe(peer, batched_message_hash.encode())
