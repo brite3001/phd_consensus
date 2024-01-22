@@ -2,6 +2,7 @@ from attrs import define, field, asdict, frozen, validators
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import curve, keys, point
 from typing import Type
+from merkly.mtree import MerkleTree
 import base64
 import asyncio
 import aiozmq
@@ -9,13 +10,12 @@ import zmq
 import json
 import secrets
 import random
-import hashlib
 from queue import Queue
+
 
 from .message_classes import DirectMessage
 from .message_classes import PublishMessage
 from .message_classes import BatchedMessages
-from .message_classes import BatchedMessageBuilder
 from .message_classes import Gossip
 from .message_classes import PeerDiscovery
 from .message_classes import EchoSubscribe
@@ -145,13 +145,14 @@ class Node:
 
             recv = await self._router.read()
 
+            print(recv)
+
             msg = json.loads(recv[2].decode())
 
             if msg["message_type"] == "DirectMessage":
                 dm = DirectMessage(**msg)
                 asyncio.create_task(self.inbox(dm))
             elif msg["message_type"] == "BatchedMessageBuilder":
-                print(msg)
                 bm = BatchedMessages(**msg)
                 self.my_logger.info(bm)
                 msg_sig_check, sender_sig_check = bm.verify_signatures()
@@ -183,6 +184,8 @@ class Node:
                 asyncio.create_task(self.inbox(key_ex))
             elif msg["message_type"] == "EchoSubscribe":
                 es = EchoSubscribe(**msg)
+                msg_sig_check = es.verify_message()
+                print(msg_sig_check)
                 asyncio.create_task(self.inbox(es))
             else:
                 self.my_logger.info(f"Received unrecognised message: {msg}")
@@ -217,7 +220,7 @@ class Node:
         self._publisher.write([pub.topic.encode(), message])
         self.my_logger.info(f"Published Message {hash(pub)}")
 
-    async def direct_message(self, message: Type[DirectMessage], receiver=""):
+    async def unsigned_direct_message(self, message: Type[DirectMessage], receiver=""):
         assert issubclass(type(message), DirectMessage)
 
         if len(receiver) == 0:
@@ -230,6 +233,25 @@ class Node:
         message = json.dumps(asdict(message)).encode()
         req.write([message])
 
+    async def signed_direct_message(
+        self,
+        bm: Type[BatchedMessages],
+        receiver="",
+    ):
+        assert issubclass(type(bm), BatchedMessages)
+        if len(receiver) == 0:
+            peer_socket = random.choice(self.sockets)
+            req = peer_socket.socket
+        else:
+            req = await aiozmq.create_zmq_stream(zmq.REQ)
+            await req.transport.connect(receiver)
+
+        print(bm.sign_as_creator(self._crypto_keys))
+        print(bm.sign_as_sender(self._crypto_keys))
+
+        message = json.dumps(asdict(bm)).encode()
+        req.write([message])
+
     ####################
     # AT2 Consensus    #
     ####################
@@ -237,45 +259,53 @@ class Node:
         self.gossip_queue.put(gossip)
 
         if self.gossip_queue.qsize() >= self.minimum_transactions_to_batch:
-            messages_list = []
-            bmb = BatchedMessageBuilder(
-                message_type="BatchedMessageBuilder",
-                creator=self._crypto_keys.bls_public_key,
-            )
+            messages = []
 
             while not self.gossip_queue.empty():
-                messages_list.append(self.gossip_queue.get())
+                messages.append(self.gossip_queue.get())
 
-            bmb.messages = (
-                Gossip(message_type="Gossip"),
-                Gossip(message_type="Gossip"),
-                Gossip(message_type="Gossip"),
+            mtree = MerkleTree([str(hash(x)) for x in messages])
+
+            bm = BatchedMessages(
+                message_type="BatchedMessage",
+                creator_bls=self._crypto_keys.bls_public_key,
+                creator_ecdsa=self._crypto_keys.ecdsa_public_key_tuple,
+                sender_ecdsa=self._crypto_keys.ecdsa_public_key_tuple,
+                messages=tuple(messages),
+                messages_agg_sig=self.sign_messages_with_BLS(messages),
+                merkle_root=mtree.root,
             )
-            bmb.sign_messages(self._crypto_keys)
-            bmb.sign_sender(self._crypto_keys)
 
             """
             TODO: replace with proper AT2 Gossip...
             """
-            # asyncio.create_task(self.direct_message(bmb))
+            self.command(bm)
 
-            batched_message_hash = hash(BatchedMessages(**asdict(bmb)))
-            batched_message_bytes = batched_message_hash.to_bytes(
-                length=len(str(batched_message_hash)), byteorder="big", signed=True
-            )
+            # batched_message_hash = hash(BatchedMessages(**asdict(bmb)))
+            # batched_message_bytes = batched_message_hash.to_bytes(
+            #     length=len(str(batched_message_hash)), byteorder="big", signed=True
+            # )
 
-            # Part 1
-            self.my_logger.info(batched_message_bytes)
-            echo_subscribe = random.sample(
-                list(self.peers), self.at2_config.echo_sample_size
-            )
+            # # Part 1
+            # self.my_logger.info(batched_message_bytes)
+            # echo_subscribe = random.sample(
+            #     list(self.peers), self.at2_config.echo_sample_size
+            # )
 
-            es = EchoSubscribe("EchoSubscribe", batched_message_hash)
+            # es = EchoSubscribe(
+            #     "EchoSubscribe",
+            #     batched_message_hash,
+            #     self._crypto_keys.ecdsa_public_key_tuple,
+            # )
 
-            for node in echo_subscribe:
-                asyncio.create_task(
-                    self.direct_message(es, self.peers[node].router_address)
-                )
+            # es_signature = es.sign_message(self._crypto_keys)
+
+            # print(es_signature)
+
+            # for node in echo_subscribe:
+            #     asyncio.create_task(
+            #         self.direct_message(es, self.peers[node].router_address)
+            #     )
 
             # Part 2
             # for peer_id in echo_subscribe:
@@ -362,14 +392,33 @@ class Node:
             asyncio.create_task(self.publish(command_obj))
         elif isinstance(command_obj, UnsubscribeFromTopic):
             asyncio.create_task(self.unsubscribe(command_obj))
+        elif issubclass(type(command_obj), BatchedMessages):
+            asyncio.create_task(self.signed_direct_message(command_obj, receiver))
         elif issubclass(type(command_obj), DirectMessage):
-            asyncio.create_task(self.direct_message(command_obj, receiver))
+            asyncio.create_task(self.unsigned_direct_message(command_obj, receiver))
         else:
             self.my_logger.warning(f"Unrecognised command object: {command_obj}")
 
     ####################
     # Helper Functions #
     ####################
+
+    def sign_messages_with_BLS(self, messages):
+        # Messages are signed with the BLS private key
+        messages_as_bytes = [json.dumps(asdict(x)).encode() for x in messages]
+        sigs = []
+        agg_sig = None
+
+        for msg_byte in messages_as_bytes:
+            sigs.append(bls_pop.Sign(self._crypto_keys.bls_private_key, msg_byte))
+
+        # Don't aggregate if we only have 1 signature
+        if len(sigs) > 1:
+            agg_sig = bls_pop.Aggregate(sigs)
+        else:
+            agg_sig = sigs[0]
+
+        return agg_sig
 
     async def peer_discovery(self, routers: list):
         pd = PeerDiscovery(
@@ -383,7 +432,7 @@ class Node:
         routers.remove(self.router_bind)
 
         for ip in routers:
-            asyncio.create_task(self.direct_message(pd, ip))
+            self.command(pd, ip)
 
     async def subscribe(self, peer_info: PeerInformation, topic: bytes):
         assert isinstance(peer_info, PeerInformation)
