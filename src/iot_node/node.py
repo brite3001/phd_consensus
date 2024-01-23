@@ -146,8 +146,12 @@ class Node:
 
             if len(recv) == 3:
                 self.my_logger.info("Received unsigned message")
+            elif len(recv) == 5:
+                self.my_logger.info("Received signed message (creator signature only)")
             elif len(recv) == 7:
-                self.my_logger.info("Received signed message")
+                self.my_logger.info(
+                    "Received signed message (creator + sender) signatures"
+                )
             else:
                 self.my_logger.warning(f"Received message of unknown length! {recv}")
 
@@ -241,7 +245,7 @@ class Node:
         message = json.dumps(asdict(message)).encode()
         req.write([message])
 
-    async def signed_direct_message(
+    async def signed_batched_message(
         self,
         bm: BatchedMessages,
         receiver="",
@@ -259,6 +263,11 @@ class Node:
 
         message = json.dumps(asdict(bm)).encode()
         req.write([message, b"", creator_sig, b"", sender_sig])
+
+    async def signed_echo(self, echo: EchoSubscribe, receiver: str):
+        # the receiver is a key for a peer in the self.peers dict
+
+        
 
     ####################
     # AT2 Consensus    #
@@ -287,28 +296,27 @@ class Node:
             """
             TODO: replace with proper AT2 Gossip...
             """
-            self.command(bm)
+            # self.command(bm)
 
-            # batched_message_hash = hash(BatchedMessages(**asdict(bmb)))
-            # batched_message_bytes = batched_message_hash.to_bytes(
-            #     length=len(str(batched_message_hash)), byteorder="big", signed=True
-            # )
+            batched_message_hash = hash(bm)
+            print(batched_message_hash)
 
             # # Part 1
-            # self.my_logger.info(batched_message_bytes)
-            # echo_subscribe = random.sample(
-            #     list(self.peers), self.at2_config.echo_sample_size
-            # )
+            echo_subscribe = random.sample(
+                list(self.peers), self.at2_config.echo_sample_size
+            )
 
-            # es = EchoSubscribe(
-            #     "EchoSubscribe",
-            #     batched_message_hash,
-            #     self._crypto_keys.ecdsa_public_key_tuple,
-            # )
+            es = EchoSubscribe(
+                "EchoSubscribe",
+                batched_message_hash,
+                self._crypto_keys.ecdsa_public_key_tuple,
+            )
 
-            # es_signature = es.sign_message(self._crypto_keys)
+            es_signature = es.sign_message(self._crypto_keys)
 
-            # print(es_signature)
+            es_verify = es.verify_signature(es_signature)
+
+            print(es_verify)
 
             # for node in echo_subscribe:
             #     asyncio.create_task(
@@ -401,7 +409,7 @@ class Node:
         elif isinstance(command_obj, UnsubscribeFromTopic):
             asyncio.create_task(self.unsubscribe(command_obj))
         elif issubclass(type(command_obj), BatchedMessages):
-            asyncio.create_task(self.signed_direct_message(command_obj, receiver))
+            asyncio.create_task(self.signed_batched_message(command_obj, receiver))
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.unsigned_direct_message(command_obj, receiver))
         else:

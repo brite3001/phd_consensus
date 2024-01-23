@@ -60,21 +60,25 @@ class EchoSubscribe(DirectMessage):
         validator=[validators.instance_of(Union[tuple, list])]
     )  # ECDSA pubkey
 
+    def get_echo_subscribe_bytes(self):
+        message_bytes = (
+            self.message_type
+            + str(self.message_hash)  # The hash of the BatchedMessage we're echoing
+            + str(self.creator[0])
+            + str(self.creator[1])
+        )
+
+        return message_bytes.encode()
+
     def sign_message(self, keys):
         # The sender part is signed with the ECDSA private key
-        assert self.message_type
-        assert self.message_hash
 
-        message_bytes = self.message_type + str(self.message_hash) + str(self.creator)
+        return ecdsa.sign(self.get_echo_subscribe_bytes(), keys.ecdsa_private_key)
 
-        return ecdsa.sign(message_bytes, keys.ecdsa_private_key)
-
-    def verify_message(self, signature):
-        message_bytes = self.message_type + str(self.message_hash) + str(self.creator)
-
+    def verify_signature(self, signature: tuple):
         creator_sig_check = ecdsa.verify(
             signature,
-            message_bytes,
+            self.get_echo_subscribe_bytes(),
             ecdsa_tuple_to_point(self.creator),
         )
 
