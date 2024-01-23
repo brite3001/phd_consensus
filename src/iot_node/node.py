@@ -1,7 +1,7 @@
 from attrs import define, field, asdict, frozen, validators
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import curve, keys, point
-from typing import Type
+from typing import Type, Tuple, Union
 from merkly.mtree import MerkleTree
 import base64
 import asyncio
@@ -40,8 +40,8 @@ class CryptoKeys:
     def ecdsa_tuple_to_point(self, ecdsa_tuple: tuple) -> point.Point:
         return point.Point(ecdsa_tuple[0], ecdsa_tuple[1])
 
-    def ecdsa_dict_to_id(self, ecdsa_dict: dict) -> str:
-        return str(hash(json.dumps(ecdsa_dict)))[:3]
+    def ecdsa_tuple_or_list_to_id(self, ecdsa: Union[Tuple, dict]) -> str:
+        return str(hash(tuple(ecdsa)))[:3]
 
     def bls_bytes_to_base64(self, bls_bytes: bytes) -> base64:
         base64.b64encode(bls_bytes).decode("utf-8")
@@ -108,9 +108,9 @@ class Node:
     async def inbox(self, message):
         # print(f"[{self.id}] Received Message")
 
-        if isinstance(message, Gossip):
+        if isinstance(message, BatchedMessages):
             self.my_logger.info(message)
-            self.received_messages[hash(message)] = message
+            # self.received_messages[hash(message)] = message
         elif isinstance(message, EchoSubscribe):
             print(message)
         elif isinstance(message, PeerDiscovery):
@@ -130,7 +130,6 @@ class Node:
 
             self.sockets.append(PeerSocket(message.router_address, bls_id, req))
         elif isinstance(message, DirectMessage):
-            print("aaa")
             self.my_logger.info(message)
 
     ####################
@@ -145,37 +144,46 @@ class Node:
 
             recv = await self._router.read()
 
-            print(recv)
+            if len(recv) == 3:
+                self.my_logger.info("Received unsigned message")
+            elif len(recv) == 7:
+                self.my_logger.info("Received signed message")
+            else:
+                self.my_logger.warning(f"Received message of unknown length! {recv}")
 
             msg = json.loads(recv[2].decode())
 
             if msg["message_type"] == "DirectMessage":
                 dm = DirectMessage(**msg)
                 asyncio.create_task(self.inbox(dm))
-            elif msg["message_type"] == "BatchedMessageBuilder":
+            elif msg["message_type"] == "BatchedMessage":
+                creator_signature = json.loads(recv[4].decode())
+                sender_signature = json.loads(recv[6].decode())
                 bm = BatchedMessages(**msg)
-                self.my_logger.info(bm)
-                msg_sig_check, sender_sig_check = bm.verify_signatures()
 
-                if msg_sig_check and sender_sig_check:
-                    sender = self._crypto_keys.ecdsa_tuple_to_point(
-                        bm.sender_info.sender
-                    )
-                    sender_bls_id = "Unknown"
+                creator_sig_check = bm.verify_creator_and_sender(
+                    creator_signature, "creator"
+                )
+                sender_sig_check = bm.verify_creator_and_sender(
+                    sender_signature, "sender"
+                )
 
-                    # Find peers BLS ID based off their ECDSA key
-                    for peer in self.peers.values():
-                        if sender == peer.ecdsa_public_key:
-                            sender_bls_id = self._crypto_keys.bls_bytes_to_id(
-                                peer.bls_public_key
-                            )
-                    creator = self._crypto_keys.bls_bytes_to_id(bm.creator)
+                creator_id = self._crypto_keys.ecdsa_tuple_or_list_to_id(
+                    bm.creator_ecdsa
+                )
+                sender_id = self._crypto_keys.ecdsa_tuple_or_list_to_id(bm.sender_ecdsa)
+
+                if creator_sig_check and sender_sig_check:
                     self.my_logger.info(
-                        f"Received BatchedMessage from: {sender_bls_id} created by {creator}"
+                        f"Received BatchedMessage from: {sender_id} created by {creator_id}"
                     )
 
                     for message in bm.messages:
                         asyncio.create_task(self.inbox(message))
+                else:
+                    self.my_logger.warning(
+                        f"Signature verification failed for {bm} | creator {creator_id} | sender {sender_id}"
+                    )
             elif msg["message_type"] == "PeerDiscovery":
                 key_ex = PeerDiscovery(**msg)
                 self.my_logger.info(
@@ -235,7 +243,7 @@ class Node:
 
     async def signed_direct_message(
         self,
-        bm: Type[BatchedMessages],
+        bm: BatchedMessages,
         receiver="",
     ):
         assert issubclass(type(bm), BatchedMessages)
@@ -246,11 +254,11 @@ class Node:
             req = await aiozmq.create_zmq_stream(zmq.REQ)
             await req.transport.connect(receiver)
 
-        print(bm.sign_as_creator(self._crypto_keys))
-        print(bm.sign_as_sender(self._crypto_keys))
+        creator_sig = json.dumps(bm.sign_as_creator(self._crypto_keys)).encode()
+        sender_sig = json.dumps(bm.sign_as_sender(self._crypto_keys)).encode()
 
         message = json.dumps(asdict(bm)).encode()
-        req.write([message])
+        req.write([message, b"", creator_sig, b"", sender_sig])
 
     ####################
     # AT2 Consensus    #
@@ -268,7 +276,7 @@ class Node:
 
             bm = BatchedMessages(
                 message_type="BatchedMessage",
-                creator_bls=self._crypto_keys.bls_public_key,
+                creator_bls=self._crypto_keys.bls_public_key_string,
                 creator_ecdsa=self._crypto_keys.ecdsa_public_key_tuple,
                 sender_ecdsa=self._crypto_keys.ecdsa_public_key_tuple,
                 messages=tuple(messages),
@@ -418,7 +426,8 @@ class Node:
         else:
             agg_sig = sigs[0]
 
-        return agg_sig
+        # return as base64 for easier serialisation
+        return base64.b64encode(agg_sig).decode("utf-8")
 
     async def peer_discovery(self, routers: list):
         pd = PeerDiscovery(
@@ -471,7 +480,7 @@ class Node:
             bls_public_key_string,
         )
 
-        self.id = self._crypto_keys.bls_bytes_to_id(self._crypto_keys.bls_public_key)
+        self.id = str(hash(self._crypto_keys.ecdsa_public_key_tuple))[:3]
 
         self.my_logger = get_logger(self.id)
 

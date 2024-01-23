@@ -8,7 +8,6 @@ import base64
 
 
 def bytes_to_base64(x: bytes):
-    print(x)
     try:
         return base64.b64encode(x).decode("utf-8")
     except:
@@ -47,8 +46,8 @@ def base64_to_bytes(x: base64) -> bytes:
     return base64.b64decode(x)
 
 
-def ecdsa_dict_to_point(x: dict) -> point.Point:
-    return point.Point(x["x"], x["y"])
+def ecdsa_tuple_to_point(ecdsa_tuple: tuple) -> point.Point:
+    return point.Point(ecdsa_tuple[0], ecdsa_tuple[1])
 
 
 # These classes are used for the AT2 protocol messages
@@ -76,7 +75,7 @@ class EchoSubscribe(DirectMessage):
         creator_sig_check = ecdsa.verify(
             signature,
             message_bytes,
-            ecdsa_dict_to_point(self.creator),
+            ecdsa_tuple_to_point(self.creator),
         )
 
         return creator_sig_check
@@ -85,55 +84,92 @@ class EchoSubscribe(DirectMessage):
 @frozen
 class BatchedMessages:
     message_type: str = field(validator=[validators.instance_of(str)])
-    creator_bls: bytes = field(validator=[validators.instance_of(bytes)])  # BLS pubkey
-    creator_ecdsa: tuple = field(validator=[validators.instance_of(tuple)])
-    sender_ecdsa: tuple = field(validator=[validators.instance_of(tuple)])
+    creator_bls: str = field(
+        validator=[validators.instance_of(str)]
+    )  # BLS pubkey, bytes encoded in base64
+
+    creator_ecdsa: Union[Tuple, list] = field(
+        validator=[validators.instance_of(Union[Tuple, list])]
+    )
+
+    sender_ecdsa: Union[Tuple, list] = field(
+        validator=[validators.instance_of(Union[Tuple, list])]
+    )
+
     messages: Union[Tuple[DirectMessage], Tuple[dict]] = field()
-    messages_agg_sig: bytes = field(validator=[validators.instance_of(bytes)])
+    messages_agg_sig: str = field(
+        validator=[validators.instance_of(str)]
+    )  # bytes encoded as base64
+
     merkle_root: str = field(validator=[validators.instance_of(str)])
+
+    def get_creator_bytes(self):
+        creator_bytes = (
+            self.message_type
+            + self.creator_bls
+            + str(self.creator_ecdsa[0])
+            + str(self.creator_ecdsa[1])
+            + self.messages_agg_sig
+            + self.merkle_root
+        )
+
+        return creator_bytes.encode()
+
+    def get_sender_bytes(self):
+        sender_bytes = (
+            self.message_type
+            + self.creator_bls
+            + str(self.creator_ecdsa[0])
+            + str(self.creator_ecdsa[1])
+            + str(self.sender_ecdsa[0])
+            + str(self.sender_ecdsa[1])
+            + self.messages_agg_sig
+            + self.merkle_root
+        )
+
+        return sender_bytes.encode()
 
     def sign_as_creator(self, keys):
         # Here we sign the whole message, but don't sign the sender part
 
-        bytes_to_sign = (
-            self.message_type.encode()
-            + self.creator_bls
-            + self.creator_ecdsa.encode()
-            + self.messages_agg_sig
-            + self.merkle_root.encode()
-        )
-
-        return ecdsa.sign(bytes_to_sign, keys.ecdsa_private_key)
+        return ecdsa.sign(self.get_creator_bytes(), keys.ecdsa_private_key)
 
     def sign_as_sender(self, keys):
         # Here we sign the whole message and include the sender ecdsa
         # Most of the time the sender won't be the original message creator
 
-        bytes_to_sign = (
-            self.message_type.encode()
-            + self.creator_bls
-            + self.creator_ecdsa.encode()
-            + self.sender_ecdsa.encode()
-            + self.messages_agg_sig
-            + self.merkle_root.encode()
+        return ecdsa.sign(self.get_sender_bytes(), keys.ecdsa_private_key)
+
+    def verify_creator_and_sender(self, signature: tuple, signature_to_check: str):
+        assert signature_to_check in {
+            "creator",
+            "sender",
+        }, "Invalid signature_to_check value"
+
+        sig_check = ecdsa.verify(
+            signature,
+            self.get_creator_bytes()
+            if signature_to_check == "creator"
+            else self.get_sender_bytes(),
+            ecdsa_tuple_to_point(self.sender_ecdsa),
         )
 
-        return ecdsa.sign(bytes_to_sign, keys.ecdsa_private_key)
+        return sig_check
 
-    def verify_signatures(self) -> tuple:
-        pub_keys = [self.creator for _ in self.messages]
-        messages_as_bytes = [json.dumps(asdict(x)).encode() for x in self.messages]
+    # def verify_signatures(self) -> tuple:
+    #     pub_keys = [self.creator for _ in self.messages]
+    #     messages_as_bytes = [json.dumps(asdict(x)).encode() for x in self.messages]
 
-        messages_sig_check = bls_pop.AggregateVerify(
-            pub_keys, messages_as_bytes, self.aggregated_signature
-        )
+    #     messages_sig_check = bls_pop.AggregateVerify(
+    #         pub_keys, messages_as_bytes, self.aggregated_signature
+    #     )
 
-        sender_bytes = json.dumps(asdict(self.sender_info)).encode()
+    #     sender_bytes = json.dumps(asdict(self.sender_info)).encode()
 
-        sender_sig_check = ecdsa.verify(
-            self.sender_signature,
-            sender_bytes,
-            ecdsa_dict_to_point(self.sender_info.sender),
-        )
+    #     sender_sig_check = ecdsa.verify(
+    #         self.sender_signature,
+    #         sender_bytes,
+    #         ecdsa_dict_to_point(self.sender_info.sender),
+    #     )
 
-        return (messages_sig_check, sender_sig_check)
+    #     return (messages_sig_check, sender_sig_check)
