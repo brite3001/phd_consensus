@@ -18,7 +18,7 @@ from .message_classes import PublishMessage
 from .message_classes import BatchedMessages
 from .message_classes import Gossip
 from .message_classes import PeerDiscovery
-from .message_classes import EchoSubscribe
+from .message_classes import Echo
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 from .at2_classes import AT2Configuration
@@ -40,8 +40,9 @@ class CryptoKeys:
     def ecdsa_tuple_to_point(self, ecdsa_tuple: tuple) -> point.Point:
         return point.Point(ecdsa_tuple[0], ecdsa_tuple[1])
 
-    def ecdsa_tuple_or_list_to_id(self, ecdsa: Union[Tuple, dict]) -> str:
-        return str(hash(tuple(ecdsa)))[:3]
+    def ecdsa_tuple_to_id(self, ecdsa: tuple) -> str:
+        assert isinstance(ecdsa, tuple)
+        return str(hash(ecdsa))[:3]
 
     def bls_bytes_to_base64(self, bls_bytes: bytes) -> base64:
         base64.b64encode(bls_bytes).decode("utf-8")
@@ -98,9 +99,9 @@ class Node:
     minimum_transactions_to_batch: int = field(factory=int)
 
     # SBRB Specific Variables
-    _echo_replies: dict[
-        str, str
-    ] = {}  # {message_hash: [node_ids that have send an echo reply]}
+    echo_replies: dict[str, str] = {}  # msg_hash: node_id
+
+    received_batched_messages: dict[str, BatchedMessages]  # str is the hash of batchedmsg
 
     ####################
     # Inbox            #
@@ -111,12 +112,15 @@ class Node:
         if isinstance(message, BatchedMessages):
             self.my_logger.info(message)
             # self.received_messages[hash(message)] = message
-        elif isinstance(message, EchoSubscribe):
-            print(message)
+        elif isinstance(message, Echo):
+            if message.batched_messages_hash in self.received_batched_messages:
+                # publish an echo_reply for that particular message hash
+                echo_reply = 
+            else:
+                # if you haven't received the message yet, ignore
+                pass
         elif isinstance(message, PeerDiscovery):
-            ecdsa_id = self._crypto_keys.ecdsa_tuple_or_list_to_id(
-                message.ecdsa_public_key
-            )
+            ecdsa_id = self._crypto_keys.ecdsa_tuple_to_id(message.ecdsa_public_key)
 
             self.peers[ecdsa_id] = message
 
@@ -140,13 +144,12 @@ class Node:
             recv = await self._router.read()
 
             if len(recv) == 3:
-                self.my_logger.info("Received unsigned message")
+                # self.my_logger.info("Received unsigned message")
+                pass
             elif len(recv) == 5:
-                self.my_logger.info("Received signed message (creator signature only)")
+                self.my_logger.info("Received signed message (creator)")
             elif len(recv) == 7:
-                self.my_logger.info(
-                    "Received signed message (creator + sender) signatures"
-                )
+                self.my_logger.info("Received signed message (creator + sender)")
             else:
                 self.my_logger.warning(f"Received message of unknown length! {recv}")
 
@@ -167,10 +170,8 @@ class Node:
                     sender_signature, "sender"
                 )
 
-                creator_id = self._crypto_keys.ecdsa_tuple_or_list_to_id(
-                    bm.creator_ecdsa
-                )
-                sender_id = self._crypto_keys.ecdsa_tuple_or_list_to_id(bm.sender_ecdsa)
+                creator_id = self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa)
+                sender_id = self._crypto_keys.ecdsa_tuple_to_id(bm.sender_ecdsa)
 
                 if creator_sig_check and sender_sig_check:
                     self.my_logger.info(
@@ -185,16 +186,25 @@ class Node:
                     )
             elif msg["message_type"] == "PeerDiscovery":
                 pd = PeerDiscovery(**msg)
-                self.my_logger.info(
-                    f"Received Peer Discovery Message from {self._crypto_keys.ecdsa_tuple_or_list_to_id(pd.bls_public_key)}"
-                )
+                creator_id = self._crypto_keys.ecdsa_tuple_to_id(pd.ecdsa_public_key)
+                # self.my_logger.info(
+                #     f"Received Peer Discovery Message from {creator_id}"
+                # )
                 asyncio.create_task(self.inbox(pd))
             elif msg["message_type"] == "EchoSubscribe":
-                creator_signature = json.loads(recv[5].decode())
-                es = EchoSubscribe(**msg)
+                creator_signature = json.loads(recv[4].decode())
+                es = Echo(**msg)
                 msg_sig_check = es.verify_echo(creator_signature)
-                print(msg_sig_check)
-                asyncio.create_task(self.inbox(es))
+
+                creator_id = self._crypto_keys.ecdsa_tuple_to_id(es.creator)
+
+                if msg_sig_check:
+                    asyncio.create_task(self.inbox(es))
+                else:
+                    self.my_logger.warning(
+                        f"Signature verification on EchoSubscribe from {creator_id} failed {es}"
+                    )
+
             else:
                 self.my_logger.info(f"Received unrecognised message: {msg}")
 
@@ -260,10 +270,14 @@ class Node:
         req.write([message, b"", creator_sig, b"", sender_sig])
 
     async def signed_echo(self, echo: EchoSubscribe, receiver: str):
-        # the receiver is a key for a peer in the self.peers dict
-        echo_sig = echo.sign_echo(self._crypto_keys)
+        # the receiver is an ECDSA ID
+        echo_sig = json.dumps(echo.sign_echo(self._crypto_keys)).encode()
 
         message = json.dumps(asdict(echo)).encode()
+
+        req_socket = self.sockets[receiver].socket
+
+        req_socket.write([message, b"", echo_sig])
 
     ####################
     # AT2 Consensus    #
@@ -297,7 +311,7 @@ class Node:
                 list(self.sockets), self.at2_config.echo_sample_size
             )
 
-            es = EchoSubscribe(
+            es = Echo(
                 "EchoSubscribe",
                 batched_message_hash,
                 self._crypto_keys.ecdsa_public_key_tuple,

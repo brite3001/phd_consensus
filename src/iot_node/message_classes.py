@@ -54,15 +54,13 @@ def ecdsa_tuple_to_point(ecdsa_tuple: tuple) -> point.Point:
 
 
 @frozen
-class EchoSubscribe(DirectMessage):
-    message_hash: int = field(validator=[validators.instance_of(int)])
-    creator: Union[tuple, list] = field(
-        validator=[validators.instance_of(Union[tuple, list])]
-    )  # ECDSA pubkey
+class Echo(DirectMessage):
+    batched_messages_hash: int = field(validator=[validators.instance_of(int)])
+    creator: tuple = field(converter=tuple)  # ECDSA pubkey
 
-    def get_echo_subscribe_bytes(self):
+    def get_echo_bytes(self):
         message_bytes = (
-            self.message_type
+            self.batched_messages_hash
             + str(self.message_hash)  # The hash of the BatchedMessage we're echoing
             + str(self.creator[0])
             + str(self.creator[1])
@@ -73,12 +71,12 @@ class EchoSubscribe(DirectMessage):
     def sign_echo(self, keys):
         # The sender part is signed with the ECDSA private key
 
-        return ecdsa.sign(self.get_echo_subscribe_bytes(), keys.ecdsa_private_key)
+        return ecdsa.sign(self.get_echo_bytes(), keys.ecdsa_private_key)
 
     def verify_echo(self, signature: tuple):
         creator_sig_check = ecdsa.verify(
             signature,
-            self.get_echo_subscribe_bytes(),
+            self.get_echo_bytes(),
             ecdsa_tuple_to_point(self.creator),
         )
 
@@ -92,13 +90,9 @@ class BatchedMessages:
         validator=[validators.instance_of(str)]
     )  # BLS pubkey, bytes encoded in base64
 
-    creator_ecdsa: Union[Tuple, list] = field(
-        validator=[validators.instance_of(Union[Tuple, list])]
-    )
+    creator_ecdsa: tuple = field(converter=tuple)
 
-    sender_ecdsa: Union[Tuple, list] = field(
-        validator=[validators.instance_of(Union[Tuple, list])]
-    )
+    sender_ecdsa: tuple = field(converter=tuple)
 
     messages: Union[Tuple[DirectMessage], Tuple[dict]] = field()
     messages_agg_sig: str = field(
