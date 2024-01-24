@@ -35,10 +35,6 @@ class PeerDiscovery(DirectMessage):
 
 @frozen
 class Gossip(DirectMessage):
-    """
-    TODO: Add signature verification to gossiped messages
-    """
-
     timestamp = int(time())
 
 
@@ -61,7 +57,7 @@ class Echo(DirectMessage):
     def get_echo_bytes(self):
         message_bytes = (
             str(self.batched_messages_hash)
-            + str(self.message_type)  # The hash of the BatchedMessage we're echoing
+            + str(self.message_type)
             + str(self.creator[0])
             + str(self.creator[1])
         )
@@ -91,7 +87,7 @@ class EchoResponse(PublishMessage):
     def get_echo_bytes(self):
         message_bytes = (
             str(self.batched_messages_hash)
-            + str(self.message_type)  # The hash of the BatchedMessage we're echoing
+            + str(self.message_type)
             + str(self.creator[0])
             + str(self.creator[1])
         )

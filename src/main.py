@@ -79,16 +79,6 @@ async def main():
         # n1.command(gos, "tcp://127.0.0.1:20002")
         # n1.command(gos, "tcp://127.0.0.1:20002")
 
-        # pub = PublishMessage(
-        #     creator=n1.id,
-        #     message="Testing Da Publish",
-        #     message_type="PublishMessage",
-        #     topic="yolo",
-        # )
-        # meta = MessageMetaData(batched=False, sender=n1.id)
-        # n1.command(pub, meta)
-        # await asyncio.sleep(1)
-
         # print(n2.received_messages)
         await asyncio.sleep(1)
 

@@ -100,7 +100,9 @@ class Node:
     minimum_transactions_to_batch: int = field(factory=int)
 
     # SBRB Specific Variables
-    echo_replies: dict[str, str] = {}  # msg_hash: node_id
+    message_index: int = field(factory=int)
+    echo_replies: dict[str, int] = field(factory=dict)  # msg_hash: node_id
+    ready_replies: dict[str, int] = field(factory=dict)  # msg_hash: node_id
 
     received_batched_messages: dict[str, BatchedMessages] = field(
         factory=dict
@@ -113,19 +115,29 @@ class Node:
         # print(f"[{self.id}] Received Message")
 
         if isinstance(message, BatchedMessages):
-            self.my_logger.info(message)
-            # self.received_messages[hash(message)] = message
+            self.received_messages[hash(message)] = message
+            es = Echo(
+                "EchoResponse",
+                message.batched_messages_hash,
+                self._crypto_keys.ecdsa_public_key_tuple,
+            )
+            self.command(es)
+
         elif isinstance(message, Echo):
-            if message.batched_messages_hash in self.received_batched_messages:
-                # publish an echo_reply for that particular message hash
-                echo_reply = Echo(
-                    "EchoResponse",
-                    message.batched_messages_hash,
-                    self._crypto_keys.ecdsa_public_key_tuple,
-                )
-            else:
-                # if you haven't received the message yet, ignore
-                pass
+            if message.message_type == "EchoSubscribe":
+                if message.batched_messages_hash in self.received_batched_messages:
+                    # publish an echo_reply for that particular message hash
+                    es = Echo(
+                        "EchoResponse",
+                        message.batched_messages_hash,
+                        self._crypto_keys.ecdsa_public_key_tuple,
+                    )
+                    self.command(es)
+                else:
+                    # if you haven't received the message yet, ignore
+                    print(f"Havent received {message.batched_messages_hash} yet")
+            if message.message_type == "ReadySubscribe":
+                print("ReadySubscribe has hit the inbox")
         elif isinstance(message, PeerDiscovery):
             ecdsa_id = self._crypto_keys.ecdsa_tuple_to_id(message.ecdsa_public_key)
 
@@ -198,7 +210,8 @@ class Node:
                 #     f"Received Peer Discovery Message from {creator_id}"
                 # )
                 asyncio.create_task(self.inbox(pd))
-            elif msg["message_type"] == "EchoSubscribe":
+            elif msg["message_type"] == "EchoSubscribe" or "ReadySubscribe":
+                echo_type = msg["message_type"]
                 creator_signature = json.loads(recv[4].decode())
                 es = Echo(**msg)
                 msg_sig_check = es.verify_echo(creator_signature)
@@ -206,14 +219,14 @@ class Node:
                 creator_id = self._crypto_keys.ecdsa_tuple_to_id(es.creator)
 
                 self.my_logger.info(
-                    f"Received EchoSubscribe from {creator_id} for BatchedMessage {es.batched_messages_hash}"
+                    f"Received {echo_type} from {creator_id} for BatchedMessage {es.batched_messages_hash}"
                 )
 
                 if msg_sig_check:
                     asyncio.create_task(self.inbox(es))
                 else:
                     self.my_logger.warning(
-                        f"Signature verification on EchoSubscribe from {creator_id} failed {es}"
+                        f"Signature verification on {echo_type} from {creator_id} failed {es}"
                     )
 
             else:
@@ -233,8 +246,9 @@ class Node:
             topic, message = recv
             message = json.loads(message.decode())
 
-            if message["message_type"] == "PublishMessage":
-                message = PublishMessage(**message)
+            if message["message_type"] == "EchoResponse":
+                message = EchoResponse(**message)
+                print(message)
             else:
                 self.my_logger.warning("Couldnt find matching class for message!!")
 
@@ -267,18 +281,14 @@ class Node:
         bm: BatchedMessages,
         receiver="",
     ):
-        if len(receiver) == 0:
-            peer_socket = random.choice(self.sockets)
-            req = peer_socket.socket
-        else:
-            req = await aiozmq.create_zmq_stream(zmq.REQ)
-            await req.transport.connect(receiver)
-
         creator_sig = json.dumps(bm.sign_as_creator(self._crypto_keys)).encode()
         sender_sig = json.dumps(bm.sign_as_sender(self._crypto_keys)).encode()
 
         message = json.dumps(asdict(bm)).encode()
-        req.write([message, b"", creator_sig, b"", sender_sig])
+
+        req_socket = self.sockets[receiver].socket
+
+        req_socket.write([message, b"", creator_sig, b"", sender_sig])
 
     async def send_signed_echo(self, echo: Echo, receiver: str):
         # the receiver is an ECDSA ID
@@ -325,15 +335,17 @@ class Node:
 
             batched_message_hash = hash(bm)
 
-            # # Part 1
+            # Step 1
             echo_subscribe = random.sample(
                 list(self.peers), self.at2_config.echo_sample_size
             )
 
+            # Step 2
             for peer_id in echo_subscribe:
                 s2p = SubscribeToPublisher(peer_id, str(batched_message_hash).encode())
                 self.command(s2p)
 
+            # Step 3
             es = Echo(
                 "EchoSubscribe",
                 batched_message_hash,
@@ -343,24 +355,30 @@ class Node:
             for peer_id in echo_subscribe:
                 self.command(es, peer_id)
 
-            # for node in echo_subscribe:
-            #     asyncio.create_task(
-            #         self.direct_message(es, self.peers[node].router_address)
-            #     )
+            # Step 4
+            ready_subscribe = random.sample(
+                list(self.peers), self.at2_config.ready_sample_size
+            )
 
-            # Part 2
-            # for peer_id in echo_subscribe:
-            #     await self.subscribe(self.peers[peer_id], batched_message_bytes)
+            # Step 5
+            for peer_id in ready_subscribe:
+                s2p = SubscribeToPublisher(peer_id, str(batched_message_hash).encode())
+                self.command(s2p)
 
-            # ready_subscribe = random.sample(
-            #     list(self.peers), self.at2_config.ready_sample_size
-            # )
+            # Step 6
+            es = Echo(
+                "ReadySubscribe",
+                batched_message_hash,
+                self._crypto_keys.ecdsa_public_key_tuple,
+            )
 
-            # print(echo_subscribe)
-            # print(ready_subscribe)
-
-            # for peer in echo_subscribe:
-            #     self.subscribe(peer, batched_message_hash.encode())
+            # Step 7
+            self.message_index += 1
+            # TODO: Implement a fix to not overload the REQ socket and cause a
+            # zmq.error.ZMQError: Operation cannot be accomplished in current state
+            for peer_id in echo_subscribe:
+                self.command(bm, peer_id)
+                asyncio.sleep(0.5)
 
             # setup variables
             """
@@ -389,16 +407,16 @@ class Node:
             2) Subscribe to the publisher of all nodes in echo_subscribe
             3) Send all nodes in echo_subscribe an EchoSubscribe message
 
-            3) Create a ready_subscribe group of size ready_sample_size
-            4) Subscribe to the publisher of all nodes in ready_subscribe
-            5) Send all nodes in ready_subscribe a ReadySubscribe message
+            4) Create a ready_subscribe group of size ready_sample_size
+            5) Subscribe to the publisher of all nodes in ready_subscribe
+            6) Send all nodes in ready_subscribe a ReadySubscribe message
 
-            6) Increment the message index
-            7) Send the message to all nodes in echo_subscribe group
+            7) Increment the message index
+            8) Send the message to all nodes in echo_subscribe group
 
-            8) Send a READY message if either:
-            8a) you receive at least ready_threshold Echo messages from your echo_subscribe group
-            8b) you receive at least feedback threshold Ready messages from your ready_subscribe group
+            9) Send a READY message if either:
+            9a) you receive at least ready_threshold Echo messages from your echo_subscribe group
+            9b) you receive at least feedback threshold Ready messages from your ready_subscribe group
 
             10) once you receive at least delivery_sample_size Ready messages, the message is considered Delivered
             """
