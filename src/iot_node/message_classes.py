@@ -70,12 +70,12 @@ class EchoSubscribe(DirectMessage):
 
         return message_bytes.encode()
 
-    def sign_message(self, keys):
+    def sign_echo(self, keys):
         # The sender part is signed with the ECDSA private key
 
         return ecdsa.sign(self.get_echo_subscribe_bytes(), keys.ecdsa_private_key)
 
-    def verify_signature(self, signature: tuple):
+    def verify_echo(self, signature: tuple):
         creator_sig_check = ecdsa.verify(
             signature,
             self.get_echo_subscribe_bytes(),

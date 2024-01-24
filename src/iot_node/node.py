@@ -66,7 +66,7 @@ class PeerInformation:
 @define
 class PeerSocket:
     router_address: str = field(validator=[validators.instance_of(str)])
-    bls_id: str = field(validator=[validators.instance_of(str)])
+    ecdsa_id: str = field(validator=[validators.instance_of(str)])
     socket: aiozmq.ZmqStream = field(
         validator=[validators.instance_of(aiozmq.ZmqStream)]
     )
@@ -83,7 +83,7 @@ class Node:
     my_logger = field(init=False)
 
     peers: dict[str, PeerInformation] = field(factory=dict)
-    sockets: list[PeerSocket] = field(factory=list)
+    sockets: dict[PeerSocket] = field(factory=dict)
 
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
     _publisher: aiozmq.stream.ZmqStream = field(init=False)
@@ -114,21 +114,16 @@ class Node:
         elif isinstance(message, EchoSubscribe):
             print(message)
         elif isinstance(message, PeerDiscovery):
-            bls_id = self._crypto_keys.bls_bytes_to_id(message.bls_public_key)
-            ecdsa_point = self._crypto_keys.ecdsa_tuple_to_point(
+            ecdsa_id = self._crypto_keys.ecdsa_tuple_or_list_to_id(
                 message.ecdsa_public_key
             )
-            self.peers[bls_id] = PeerInformation(
-                message.bls_public_key,
-                ecdsa_point,
-                message.router_address,
-                message.publisher_address,
-            )
+
+            self.peers[ecdsa_id] = message
 
             req = await aiozmq.create_zmq_stream(zmq.REQ)
             await req.transport.connect(message.router_address)
 
-            self.sockets.append(PeerSocket(message.router_address, bls_id, req))
+            self.sockets[ecdsa_id] = PeerSocket(message.router_address, ecdsa_id, req)
         elif isinstance(message, DirectMessage):
             self.my_logger.info(message)
 
@@ -189,14 +184,15 @@ class Node:
                         f"Signature verification failed for {bm} | creator {creator_id} | sender {sender_id}"
                     )
             elif msg["message_type"] == "PeerDiscovery":
-                key_ex = PeerDiscovery(**msg)
+                pd = PeerDiscovery(**msg)
                 self.my_logger.info(
-                    f"Received Peer Discovery Message from {self._crypto_keys.bls_bytes_to_id(key_ex.bls_public_key)}"
+                    f"Received Peer Discovery Message from {self._crypto_keys.ecdsa_tuple_or_list_to_id(pd.bls_public_key)}"
                 )
-                asyncio.create_task(self.inbox(key_ex))
+                asyncio.create_task(self.inbox(pd))
             elif msg["message_type"] == "EchoSubscribe":
+                creator_signature = json.loads(recv[5].decode())
                 es = EchoSubscribe(**msg)
-                msg_sig_check = es.verify_message()
+                msg_sig_check = es.verify_echo(creator_signature)
                 print(msg_sig_check)
                 asyncio.create_task(self.inbox(es))
             else:
@@ -250,7 +246,6 @@ class Node:
         bm: BatchedMessages,
         receiver="",
     ):
-        assert issubclass(type(bm), BatchedMessages)
         if len(receiver) == 0:
             peer_socket = random.choice(self.sockets)
             req = peer_socket.socket
@@ -266,8 +261,9 @@ class Node:
 
     async def signed_echo(self, echo: EchoSubscribe, receiver: str):
         # the receiver is a key for a peer in the self.peers dict
+        echo_sig = echo.sign_echo(self._crypto_keys)
 
-        
+        message = json.dumps(asdict(echo)).encode()
 
     ####################
     # AT2 Consensus    #
@@ -281,6 +277,7 @@ class Node:
             while not self.gossip_queue.empty():
                 messages.append(self.gossip_queue.get())
 
+            # Batched Message Setup
             mtree = MerkleTree([str(hash(x)) for x in messages])
 
             bm = BatchedMessages(
@@ -293,17 +290,11 @@ class Node:
                 merkle_root=mtree.root,
             )
 
-            """
-            TODO: replace with proper AT2 Gossip...
-            """
-            # self.command(bm)
-
             batched_message_hash = hash(bm)
-            print(batched_message_hash)
 
             # # Part 1
             echo_subscribe = random.sample(
-                list(self.peers), self.at2_config.echo_sample_size
+                list(self.sockets), self.at2_config.echo_sample_size
             )
 
             es = EchoSubscribe(
@@ -312,11 +303,8 @@ class Node:
                 self._crypto_keys.ecdsa_public_key_tuple,
             )
 
-            es_signature = es.sign_message(self._crypto_keys)
-
-            es_verify = es.verify_signature(es_signature)
-
-            print(es_verify)
+            for peer_socket in echo_subscribe:
+                self.command(es, peer_socket)
 
             # for node in echo_subscribe:
             #     asyncio.create_task(
@@ -397,7 +385,7 @@ class Node:
             """
 
     ####################
-    # Node 'API'       #
+    # Node Message Bus #
     ####################
     def command(self, command_obj, receiver=""):
         if isinstance(command_obj, SubscribeToPublisher):
@@ -410,6 +398,8 @@ class Node:
             asyncio.create_task(self.unsubscribe(command_obj))
         elif issubclass(type(command_obj), BatchedMessages):
             asyncio.create_task(self.signed_batched_message(command_obj, receiver))
+        elif issubclass(type(command_obj), EchoSubscribe):
+            asyncio.create_task(self.signed_echo(command_obj, receiver))
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.unsigned_direct_message(command_obj, receiver))
         else:
