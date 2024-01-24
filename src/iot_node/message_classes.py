@@ -60,8 +60,8 @@ class Echo(DirectMessage):
 
     def get_echo_bytes(self):
         message_bytes = (
-            self.batched_messages_hash
-            + str(self.message_hash)  # The hash of the BatchedMessage we're echoing
+            str(self.batched_messages_hash)
+            + str(self.message_type)  # The hash of the BatchedMessage we're echoing
             + str(self.creator[0])
             + str(self.creator[1])
         )
@@ -74,6 +74,36 @@ class Echo(DirectMessage):
         return ecdsa.sign(self.get_echo_bytes(), keys.ecdsa_private_key)
 
     def verify_echo(self, signature: tuple):
+        creator_sig_check = ecdsa.verify(
+            signature,
+            self.get_echo_bytes(),
+            ecdsa_tuple_to_point(self.creator),
+        )
+
+        return creator_sig_check
+
+
+@frozen
+class EchoResponse(PublishMessage):
+    batched_messages_hash: int = field(validator=[validators.instance_of(int)])
+    creator: tuple = field(converter=tuple)  # ECDSA pubkey
+
+    def get_echo_bytes(self):
+        message_bytes = (
+            str(self.batched_messages_hash)
+            + str(self.message_type)  # The hash of the BatchedMessage we're echoing
+            + str(self.creator[0])
+            + str(self.creator[1])
+        )
+
+        return message_bytes.encode()
+
+    def sign_echo_response(self, keys):
+        # The sender part is signed with the ECDSA private key
+
+        return ecdsa.sign(self.get_echo_bytes(), keys.ecdsa_private_key)
+
+    def verify_echo_response(self, signature: tuple):
         creator_sig_check = ecdsa.verify(
             signature,
             self.get_echo_bytes(),

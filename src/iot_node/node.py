@@ -19,6 +19,7 @@ from .message_classes import BatchedMessages
 from .message_classes import Gossip
 from .message_classes import PeerDiscovery
 from .message_classes import Echo
+from .message_classes import EchoResponse
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 from .at2_classes import AT2Configuration
@@ -101,7 +102,9 @@ class Node:
     # SBRB Specific Variables
     echo_replies: dict[str, str] = {}  # msg_hash: node_id
 
-    received_batched_messages: dict[str, BatchedMessages]  # str is the hash of batchedmsg
+    received_batched_messages: dict[str, BatchedMessages] = field(
+        factory=dict
+    )  # str is the hash of batchedmsg
 
     ####################
     # Inbox            #
@@ -115,7 +118,11 @@ class Node:
         elif isinstance(message, Echo):
             if message.batched_messages_hash in self.received_batched_messages:
                 # publish an echo_reply for that particular message hash
-                echo_reply = 
+                echo_reply = Echo(
+                    "EchoResponse",
+                    message.batched_messages_hash,
+                    self._crypto_keys.ecdsa_public_key_tuple,
+                )
             else:
                 # if you haven't received the message yet, ignore
                 pass
@@ -143,15 +150,15 @@ class Node:
 
             recv = await self._router.read()
 
-            if len(recv) == 3:
-                # self.my_logger.info("Received unsigned message")
-                pass
-            elif len(recv) == 5:
-                self.my_logger.info("Received signed message (creator)")
-            elif len(recv) == 7:
-                self.my_logger.info("Received signed message (creator + sender)")
-            else:
-                self.my_logger.warning(f"Received message of unknown length! {recv}")
+            # if len(recv) == 3:
+            #     self.my_logger.info("Received unsigned message")
+            #     pass
+            # elif len(recv) == 5:
+            #     self.my_logger.info("Received signed message (creator)")
+            # elif len(recv) == 7:
+            #     self.my_logger.info("Received signed message (creator + sender)")
+            # else:
+            #     self.my_logger.warning(f"Received message of unknown length! {recv}")
 
             msg = json.loads(recv[2].decode())
 
@@ -198,6 +205,10 @@ class Node:
 
                 creator_id = self._crypto_keys.ecdsa_tuple_to_id(es.creator)
 
+                self.my_logger.info(
+                    f"Received EchoSubscribe from {creator_id} for BatchedMessage {es.batched_messages_hash}"
+                )
+
                 if msg_sig_check:
                     asyncio.create_task(self.inbox(es))
                 else:
@@ -232,7 +243,7 @@ class Node:
     ####################
     # Message Sending  #
     ####################
-    async def publish(self, pub: PublishMessage):
+    async def unsigned_publish(self, pub: PublishMessage):
         message = json.dumps(asdict(pub)).encode()
 
         self._publisher.write([pub.topic.encode(), message])
@@ -251,7 +262,7 @@ class Node:
         message = json.dumps(asdict(message)).encode()
         req.write([message])
 
-    async def signed_batched_message(
+    async def send_signed_batched_message(
         self,
         bm: BatchedMessages,
         receiver="",
@@ -269,7 +280,7 @@ class Node:
         message = json.dumps(asdict(bm)).encode()
         req.write([message, b"", creator_sig, b"", sender_sig])
 
-    async def signed_echo(self, echo: EchoSubscribe, receiver: str):
+    async def send_signed_echo(self, echo: Echo, receiver: str):
         # the receiver is an ECDSA ID
         echo_sig = json.dumps(echo.sign_echo(self._crypto_keys)).encode()
 
@@ -278,6 +289,14 @@ class Node:
         req_socket = self.sockets[receiver].socket
 
         req_socket.write([message, b"", echo_sig])
+
+    async def publish_signed_echo_response(self, er: EchoResponse):
+        message = json.dumps(asdict(er)).encode()
+        echo_sig = er.sign_echo_response(self._crypto_keys)
+
+        self._publisher.write(
+            [er.batched_messages_hash.encode(), b"", message, b"", echo_sig]
+        )
 
     ####################
     # AT2 Consensus    #
@@ -308,8 +327,12 @@ class Node:
 
             # # Part 1
             echo_subscribe = random.sample(
-                list(self.sockets), self.at2_config.echo_sample_size
+                list(self.peers), self.at2_config.echo_sample_size
             )
+
+            for peer_id in echo_subscribe:
+                s2p = SubscribeToPublisher(peer_id, str(batched_message_hash).encode())
+                self.command(s2p)
 
             es = Echo(
                 "EchoSubscribe",
@@ -317,8 +340,8 @@ class Node:
                 self._crypto_keys.ecdsa_public_key_tuple,
             )
 
-            for peer_socket in echo_subscribe:
-                self.command(es, peer_socket)
+            for peer_id in echo_subscribe:
+                self.command(es, peer_id)
 
             # for node in echo_subscribe:
             #     asyncio.create_task(
@@ -406,16 +429,16 @@ class Node:
             asyncio.create_task(self.subscribe(command_obj))
         elif isinstance(command_obj, Gossip):
             asyncio.create_task(self.gossip(command_obj))
-        elif isinstance(command_obj, PublishMessage):
-            asyncio.create_task(self.publish(command_obj))
         elif isinstance(command_obj, UnsubscribeFromTopic):
             asyncio.create_task(self.unsubscribe(command_obj))
         elif issubclass(type(command_obj), BatchedMessages):
-            asyncio.create_task(self.signed_batched_message(command_obj, receiver))
-        elif issubclass(type(command_obj), EchoSubscribe):
-            asyncio.create_task(self.signed_echo(command_obj, receiver))
+            asyncio.create_task(self.send_signed_batched_message(command_obj, receiver))
+        elif issubclass(type(command_obj), Echo):
+            asyncio.create_task(self.send_signed_echo(command_obj, receiver))
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.unsigned_direct_message(command_obj, receiver))
+        elif isinstance(command_obj, PublishMessage):
+            asyncio.create_task(self.unsigned_publish(command_obj))
         else:
             self.my_logger.warning(f"Unrecognised command object: {command_obj}")
 
@@ -455,14 +478,13 @@ class Node:
         for ip in routers:
             self.command(pd, ip)
 
-    async def subscribe(self, peer_info: PeerInformation, topic: bytes):
-        assert isinstance(peer_info, PeerInformation)
-        assert isinstance(topic, bytes)
-        self._subscriber.transport.connect(peer_info.publisher_address)
-        self._subscriber.transport.subscribe(topic)
+    async def subscribe(self, s2p: SubscribeToPublisher):
+        # peer_id is a key from the self.peers dict
+        self._subscriber.transport.connect(self.peers[s2p.peer_id].publisher_address)
+        self._subscriber.transport.subscribe(s2p.topic)
 
         self.my_logger.info(
-            f"Successfully Subscribed to {peer_info.publisher_address}/{topic}"
+            f"Successfully Subscribed to {self.peers[s2p.peer_id].publisher_address}/{s2p.topic}"
         )
 
     async def unsubscribe(self, unsub: UnsubscribeFromTopic):

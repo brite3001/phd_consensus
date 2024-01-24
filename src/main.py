@@ -5,10 +5,6 @@ import uvloop
 import random
 
 from iot_node.node import Node
-from iot_node.commad_arg_classes import SubscribeToPublisher
-from iot_node.message_classes import DirectMessage
-from iot_node.message_classes import PublishMessage
-from iot_node.message_classes import EchoSubscribe
 from iot_node.message_classes import Gossip
 from iot_node.at2_classes import AT2Configuration
 from logs import get_logger
