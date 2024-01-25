@@ -95,6 +95,7 @@ class Node:
     gossip_queue: Queue = field(factory=Queue)
     received_messages: dict = field(factory=dict)
     running: bool = field(factory=bool)
+    rep_lock = asyncio.Lock()
 
     # Tuneable Values
     minimum_transactions_to_batch: int = field(factory=int)
@@ -274,7 +275,10 @@ class Node:
             await req.transport.connect(receiver)
 
         message = json.dumps(asdict(message)).encode()
-        req.write([message])
+
+        async with self.rep_lock:
+            req.write([message])
+            await req.read()
 
     async def send_signed_batched_message(
         self,
@@ -288,7 +292,10 @@ class Node:
 
         req_socket = self.sockets[receiver].socket
 
-        req_socket.write([message, b"", creator_sig, b"", sender_sig])
+        # Allow access to this socket one message at a time
+        async with self.rep_lock:
+            req_socket.write([message, b"", creator_sig, b"", sender_sig])
+            await req_socket.read()
 
     async def send_signed_echo(self, echo: Echo, receiver: str):
         # the receiver is an ECDSA ID
@@ -298,7 +305,9 @@ class Node:
 
         req_socket = self.sockets[receiver].socket
 
-        req_socket.write([message, b"", echo_sig])
+        async with self.rep_lock:
+            req_socket.write([message, b"", echo_sig])
+            await req_socket.read()
 
     async def publish_signed_echo_response(self, er: EchoResponse):
         message = json.dumps(asdict(er)).encode()
@@ -354,6 +363,7 @@ class Node:
 
             for peer_id in echo_subscribe:
                 self.command(es, peer_id)
+                # await asyncio.sleep(0.1)
 
             # Step 4
             ready_subscribe = random.sample(
@@ -366,19 +376,23 @@ class Node:
                 self.command(s2p)
 
             # Step 6
-            es = Echo(
+            rs = Echo(
                 "ReadySubscribe",
                 batched_message_hash,
                 self._crypto_keys.ecdsa_public_key_tuple,
             )
 
+            for peer_id in ready_subscribe:
+                self.command(rs, peer_id)
+                # await asyncio.sleep(0.1)
+
             # Step 7
             self.message_index += 1
             # TODO: Implement a fix to not overload the REQ socket and cause a
             # zmq.error.ZMQError: Operation cannot be accomplished in current state
-            for peer_id in echo_subscribe:
-                self.command(bm, peer_id)
-                asyncio.sleep(0.5)
+            # for peer_id in echo_subscribe:
+            #     self.command(bm, peer_id)
+            #     asyncio.sleep(0.5)
 
             # setup variables
             """
