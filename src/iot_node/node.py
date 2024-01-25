@@ -3,6 +3,8 @@ from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import curve, keys, point
 from typing import Type, Tuple, Union
 from merkly.mtree import MerkleTree
+from collections import defaultdict
+from queue import Queue
 import base64
 import asyncio
 import aiozmq
@@ -10,7 +12,6 @@ import zmq
 import json
 import secrets
 import random
-from queue import Queue
 
 
 from .message_classes import DirectMessage
@@ -19,7 +20,7 @@ from .message_classes import BatchedMessages
 from .message_classes import Gossip
 from .message_classes import PeerDiscovery
 from .message_classes import Echo
-from .message_classes import EchoResponse
+from .message_classes import Response
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 from .at2_classes import AT2Configuration
@@ -102,11 +103,13 @@ class Node:
 
     # SBRB Specific Variables
     message_index: int = field(factory=int)
-    echo_replies: dict[str, int] = field(factory=dict)  # msg_hash: node_id
-    ready_replies: dict[str, int] = field(factory=dict)  # msg_hash: node_id
 
-    received_batched_messages: dict[str, BatchedMessages] = field(
-        factory=dict
+    echo_replies: defaultdict[str, int] = defaultdict(int)  # str == node_id
+
+    ready_replies: defaultdict[str, int] = defaultdict(int)  # str == node_id
+
+    received_batched_messages: dict[str, BatchedMessages] = defaultdict(
+        BatchedMessages
     )  # str is the hash of batchedmsg
 
     ####################
@@ -116,10 +119,12 @@ class Node:
         # print(f"[{self.id}] Received Message")
 
         if isinstance(message, BatchedMessages):
-            self.received_messages[hash(message)] = message
-            es = Echo(
+            bm_hash = hash(message)
+            self.received_messages[bm_hash] = message
+
+            es = Response(
                 "EchoResponse",
-                message.batched_messages_hash,
+                str(bm_hash),
                 self._crypto_keys.ecdsa_public_key_tuple,
             )
             self.command(es)
@@ -128,7 +133,7 @@ class Node:
             if message.message_type == "EchoSubscribe":
                 if message.batched_messages_hash in self.received_batched_messages:
                     # publish an echo_reply for that particular message hash
-                    es = Echo(
+                    es = Response(
                         "EchoResponse",
                         message.batched_messages_hash,
                         self._crypto_keys.ecdsa_public_key_tuple,
@@ -138,7 +143,16 @@ class Node:
                     # if you haven't received the message yet, ignore
                     print(f"Havent received {message.batched_messages_hash} yet")
             if message.message_type == "ReadySubscribe":
-                print("ReadySubscribe has hit the inbox")
+                if (
+                    self.ready_replies[message.batched_messages_hash]
+                    >= self.at2_config.feedback_threshold
+                ):
+                    ready = Response(
+                        "ReadyResponse",
+                        message.batched_messages_hash,
+                        self._crypto_keys.ecdsa_public_key_tuple,
+                    )
+                    self.command(ready)
         elif isinstance(message, PeerDiscovery):
             ecdsa_id = self._crypto_keys.ecdsa_tuple_to_id(message.ecdsa_public_key)
 
@@ -179,6 +193,7 @@ class Node:
                 dm = DirectMessage(**msg)
                 asyncio.create_task(self.inbox(dm))
             elif msg["message_type"] == "BatchedMessage":
+                msg["messages"] = tuple([Gossip(**x) for x in msg["messages"]])
                 creator_signature = json.loads(recv[4].decode())
                 sender_signature = json.loads(recv[6].decode())
                 bm = BatchedMessages(**msg)
@@ -198,8 +213,7 @@ class Node:
                         f"Received BatchedMessage from: {sender_id} created by {creator_id}"
                     )
 
-                    for message in bm.messages:
-                        asyncio.create_task(self.inbox(message))
+                    asyncio.create_task(self.inbox(bm))
                 else:
                     self.my_logger.warning(
                         f"Signature verification failed for {bm} | creator {creator_id} | sender {sender_id}"
@@ -219,9 +233,9 @@ class Node:
 
                 creator_id = self._crypto_keys.ecdsa_tuple_to_id(es.creator)
 
-                self.my_logger.info(
-                    f"Received {echo_type} from {creator_id} for BatchedMessage {es.batched_messages_hash}"
-                )
+                # self.my_logger.info(
+                #     f"Received {echo_type} from {creator_id} for BatchedMessage {es.batched_messages_hash}"
+                # )
 
                 if msg_sig_check:
                     asyncio.create_task(self.inbox(es))
@@ -243,13 +257,23 @@ class Node:
                 break
 
             recv = await self._subscriber.read()
+            print("received a broadcast")
 
-            topic, message = recv
+            if len(recv) == 2:
+                self.my_logger.info("Received unsigned published message")
+            elif len(recv) == 3:
+                self.my_logger.info("Received signed published message")
+
+            # topic is recv[0]
+            message = recv[1]
             message = json.loads(message.decode())
 
+            print(message)
+
             if message["message_type"] == "EchoResponse":
-                message = EchoResponse(**message)
-                print(message)
+                message = Response(**message)
+                echo_sig = recv[2]
+                message.verify_echo_response(echo_sig)
             else:
                 self.my_logger.warning("Couldnt find matching class for message!!")
 
@@ -309,13 +333,13 @@ class Node:
             req_socket.write([message, b"", echo_sig])
             await req_socket.read()
 
-    async def publish_signed_echo_response(self, er: EchoResponse):
+    async def publish_signed_echo_response(self, er: Response):
+        # print(f"published message {er.message_type}")
+        print(f"topic: {er.topic.encode()}")
         message = json.dumps(asdict(er)).encode()
-        echo_sig = er.sign_echo_response(self._crypto_keys)
+        echo_sig = json.dumps(er.sign_echo_response(self._crypto_keys)).encode()
 
-        self._publisher.write(
-            [er.batched_messages_hash.encode(), b"", message, b"", echo_sig]
-        )
+        self._publisher.write([er.topic.encode(), message, echo_sig])
 
     ####################
     # AT2 Consensus    #
@@ -388,11 +412,23 @@ class Node:
 
             # Step 7
             self.message_index += 1
-            # TODO: Implement a fix to not overload the REQ socket and cause a
-            # zmq.error.ZMQError: Operation cannot be accomplished in current state
-            # for peer_id in echo_subscribe:
-            #     self.command(bm, peer_id)
-            #     asyncio.sleep(0.5)
+
+            # Step 9b (early check to avoid sending the batchedmessages)
+            if (
+                self.ready_replies[batched_message_hash]
+                >= self.at2_config.feedback_threshold
+            ):
+                ready = Response(
+                    "ReadyResponse",
+                    batched_message_hash,
+                    self._crypto_keys.ecdsa_public_key_tuple,
+                )
+
+                self.command(ready)
+            else:
+                # step 8
+                for peer_id in echo_subscribe:
+                    self.command(bm, peer_id)
 
             # setup variables
             """
@@ -467,6 +503,8 @@ class Node:
             asyncio.create_task(self.send_signed_batched_message(command_obj, receiver))
         elif issubclass(type(command_obj), Echo):
             asyncio.create_task(self.send_signed_echo(command_obj, receiver))
+        elif issubclass(type(command_obj), Response):
+            asyncio.create_task(self.publish_signed_echo_response(command_obj))
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.unsigned_direct_message(command_obj, receiver))
         elif isinstance(command_obj, PublishMessage):

@@ -80,13 +80,12 @@ class Echo(DirectMessage):
 
 
 @frozen
-class EchoResponse(PublishMessage):
-    batched_messages_hash: int = field(validator=[validators.instance_of(int)])
+class Response(PublishMessage):
     creator: tuple = field(converter=tuple)  # ECDSA pubkey
 
     def get_echo_bytes(self):
         message_bytes = (
-            str(self.batched_messages_hash)
+            str(self.topic)
             + str(self.message_type)
             + str(self.creator[0])
             + str(self.creator[1])
@@ -120,7 +119,7 @@ class BatchedMessages:
 
     sender_ecdsa: tuple = field(converter=tuple)
 
-    messages: Union[Tuple[DirectMessage], Tuple[dict]] = field()
+    messages: Union[Tuple[DirectMessage], Tuple[dict]] = field(converter=tuple)
     messages_agg_sig: str = field(
         validator=[validators.instance_of(str)]
     )  # bytes encoded as base64
