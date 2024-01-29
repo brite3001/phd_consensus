@@ -6,6 +6,9 @@ import random
 
 from iot_node.node import Node
 from iot_node.message_classes import Gossip
+from iot_node.message_classes import PublishMessage
+from iot_node.message_classes import Response
+from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.at2_classes import AT2Configuration
 from logs import get_logger
 
@@ -19,7 +22,8 @@ async def main():
     num_nodes = 10
 
     # at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
-    at2_config = AT2Configuration(7, 7, 7, 5, 6, 7)
+    # at2_config = AT2Configuration(7, 7, 7, 5, 6, 7)
+    at2_config = AT2Configuration(6, 6, 6, 4, 5, 6)
 
     router_list = [
         "tcp://127.0.0.1:20001",
@@ -60,13 +64,31 @@ async def main():
     await asyncio.sleep(1)
 
     n1 = nodes[0]
+    n2 = nodes[1]
+    n3 = nodes[2]
 
     while True:
         gos = Gossip(
             message_type="Gossip",
         )
 
-        n1.command(gos)
+        s2p = SubscribeToPublisher(n2.id, b"aaa")
+        n1.command(s2p)
+        s2p = SubscribeToPublisher(n3.id, b"aaa")
+        n1.command(s2p)
+        s2p = SubscribeToPublisher(n2.id, b"aaa")
+        n1.command(s2p)
+        s2p = SubscribeToPublisher(n3.id, b"aaa")
+        n1.command(s2p)
+
+        # pm = PublishMessage("Publish", "aaa")
+
+        # n2.command(pm)
+        # n3.command(pm)
+
+        e = Response("HelloMotto", "aaa", n2._crypto_keys.ecdsa_public_key_tuple)
+
+        n2.command(e)
 
         # n1.command(gos, "tcp://127.0.0.1:20002")
         # n1.command(gos, "tcp://127.0.0.1:20002")
@@ -80,7 +102,7 @@ async def main():
         # n1.command(gos, "tcp://127.0.0.1:20002")
 
         # print(n2.received_messages)
-        await asyncio.sleep(1)
+        await asyncio.sleep(5)
 
 
 async def shutdown(signal, loop):

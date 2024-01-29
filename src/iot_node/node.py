@@ -85,23 +85,27 @@ class Node:
     id: str = field(init=False)
     my_logger = field(init=False)
 
+    # Info about our peers
     peers: dict[str, PeerInformation] = field(factory=dict)
     sockets: dict[PeerSocket] = field(factory=dict)
 
+    # AIOZMQ Sockets
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
     _publisher: aiozmq.stream.ZmqStream = field(init=False)
     _router: aiozmq.stream.ZmqStream = field(init=False)
-    _crypto_keys: CryptoKeys = field(init=False)
-
-    gossip_queue: Queue = field(factory=Queue)
-    received_messages: dict = field(factory=dict)
-    running: bool = field(factory=bool)
+    connected_subscribers: set = field(factory=set)  # stores peer_ids
+    subscribed_topics: set = field(factory=set)  # stores topics as bytes
     rep_lock = asyncio.Lock()
+
+    _crypto_keys: CryptoKeys = field(init=False)
+    running: bool = field(factory=bool)
 
     # Tuneable Values
     minimum_transactions_to_batch: int = field(factory=int)
 
     # SBRB Specific Variables
+    gossip_queue: Queue = field(factory=Queue)
+    received_messages: dict = field(factory=dict)
     message_index: int = field(factory=int)
 
     echo_replies: defaultdict[str, int] = defaultdict(int)  # str == node_id
@@ -121,6 +125,8 @@ class Node:
         if isinstance(message, BatchedMessages):
             bm_hash = hash(message)
             self.received_messages[bm_hash] = message
+
+            print("received batched message, broadcasting response")
 
             es = Response(
                 "EchoResponse",
@@ -335,7 +341,7 @@ class Node:
 
     async def publish_signed_echo_response(self, er: Response):
         # print(f"published message {er.message_type}")
-        print(f"topic: {er.topic.encode()}")
+
         message = json.dumps(asdict(er)).encode()
         echo_sig = json.dumps(er.sign_echo_response(self._crypto_keys)).encode()
 
@@ -504,6 +510,7 @@ class Node:
         elif issubclass(type(command_obj), Echo):
             asyncio.create_task(self.send_signed_echo(command_obj, receiver))
         elif issubclass(type(command_obj), Response):
+            print(f"publishing {command_obj}")
             asyncio.create_task(self.publish_signed_echo_response(command_obj))
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.unsigned_direct_message(command_obj, receiver))
@@ -550,12 +557,21 @@ class Node:
 
     async def subscribe(self, s2p: SubscribeToPublisher):
         # peer_id is a key from the self.peers dict
-        self._subscriber.transport.connect(self.peers[s2p.peer_id].publisher_address)
-        self._subscriber.transport.subscribe(s2p.topic)
 
-        self.my_logger.info(
-            f"Successfully Subscribed to {self.peers[s2p.peer_id].publisher_address}/{s2p.topic}"
-        )
+        # Don't resubscribe to the same ip twice, or else things break
+        if s2p.peer_id not in self.connected_subscribers:
+            self._subscriber.transport.connect(
+                self.peers[s2p.peer_id].publisher_address
+            )
+            self.connected_subscribers.add(s2p.peer_id)
+            self.my_logger.info(
+                f"Connected to {self.peers[s2p.peer_id].publisher_address}"
+            )
+
+        if s2p.topic not in self.subscribed_topics:
+            self._subscriber.transport.subscribe(s2p.topic)
+            self.subscribed_topics.add(s2p.topic)
+            self.my_logger.info(f"Subscribed to {s2p.topic}")
 
     async def unsubscribe(self, unsub: UnsubscribeFromTopic):
         self._subscriber.transport.unsubscribe(unsub.topic)
