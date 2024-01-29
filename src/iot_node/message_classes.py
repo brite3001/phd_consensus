@@ -51,12 +51,12 @@ def ecdsa_tuple_to_point(ecdsa_tuple: tuple) -> point.Point:
 
 @frozen
 class Echo(DirectMessage):
-    batched_messages_hash: int = field(validator=[validators.instance_of(int)])
+    batched_messages_hash: str = field(validator=[validators.instance_of(str)])
     creator: tuple = field(converter=tuple)  # ECDSA pubkey
 
     def get_echo_bytes(self):
         message_bytes = (
-            str(self.batched_messages_hash)
+            self.batched_messages_hash
             + str(self.message_type)
             + str(self.creator[0])
             + str(self.creator[1])

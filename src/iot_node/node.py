@@ -274,11 +274,18 @@ class Node:
             if message["message_type"] == "EchoResponse":
                 message = Response(**message)
                 echo_sig = json.loads(recv[2].decode())
-                message.verify_echo_response(echo_sig)
+                sig_check = message.verify_echo_response(echo_sig)
                 publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
                 self.my_logger.info(
                     f"Received EchoResponse for {message.topic} from {publisher}"
                 )
+
+                if sig_check:
+                    self.echo_replies[message.topic] += 1
+                else:
+                    self.my_logger.warning(
+                        f"Signature check for message {message.topic} from {publisher} failed!!"
+                    )
 
             else:
                 self.my_logger.warning("Couldnt find matching class for message!!")
@@ -372,7 +379,7 @@ class Node:
                 merkle_root=mtree.root,
             )
 
-            batched_message_hash = hash(bm)
+            batched_message_hash = str(hash(bm))
 
             # Step 1
             echo_subscribe = random.sample(
@@ -381,7 +388,7 @@ class Node:
 
             # Step 2
             for peer_id in echo_subscribe:
-                s2p = SubscribeToPublisher(peer_id, str(batched_message_hash).encode())
+                s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
                 self.command(s2p)
 
             # Step 3
@@ -402,7 +409,7 @@ class Node:
 
             # Step 5
             for peer_id in ready_subscribe:
-                s2p = SubscribeToPublisher(peer_id, str(batched_message_hash).encode())
+                s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
                 self.command(s2p)
 
             # Step 6
@@ -419,11 +426,14 @@ class Node:
             # Step 7
             self.message_index += 1
 
-            # Step 9b (early check to avoid sending the batchedmessages)
+            # step 8
             if (
                 self.ready_replies[batched_message_hash]
                 >= self.at2_config.feedback_threshold
             ):
+                # if we've already received feedback_threshold number of ready_replies
+                # we can avoid sending the batched message out altogether
+                # (as per 9B)
                 ready = Response(
                     "ReadyResponse",
                     batched_message_hash,
@@ -432,9 +442,61 @@ class Node:
 
                 self.command(ready)
             else:
-                # step 8
+                # If we're the original creator of the batched message, we'll end up here.
                 for peer_id in echo_subscribe:
                     self.command(bm, peer_id)
+
+            # Step 9
+            retries = 0
+            while (
+                self.echo_replies[batched_message_hash]
+                < self.at2_config.ready_threshold
+            ):
+                if retries == 50:
+                    break
+                await asyncio.sleep(0.1)
+
+                retries += 1
+
+            if (
+                self.echo_replies[batched_message_hash]
+                >= self.at2_config.ready_threshold
+            ):
+                ready = Response(
+                    "ReadyResponse",
+                    batched_message_hash,
+                    self._crypto_keys.ecdsa_public_key_tuple,
+                )
+
+                self.command(ready)
+                self.my_logger.warning(f"Ready for: {batched_message_hash}")
+            else:
+                self.my_logger.error(
+                    f"Didnt reach echo threshold for: {batched_message_hash} got: {self.echo_replies} needed: {self.at2_config.ready_threshold}"
+                )
+
+            # Step 10
+            retries = 0
+            while (
+                self.ready_replies[batched_message_hash]
+                < self.at2_config.delivery_threshold
+            ):
+                if retries == 50:
+                    break
+
+                await asyncio.sleep(0.1)
+
+                retries += 1
+
+            if (
+                self.ready_replies[batched_message_hash]
+                >= self.at2_config.delivery_threshold
+            ):
+                self.my_logger.warning(f"{batched_message_hash} has been delivered!")
+            else:
+                self.my_logger.warning(
+                    f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash}"
+                )
 
             # setup variables
             """
@@ -474,7 +536,7 @@ class Node:
             9a) you receive at least ready_threshold Echo messages from your echo_subscribe group
             9b) you receive at least feedback threshold Ready messages from your ready_subscribe group
 
-            10) once you receive at least delivery_sample_size Ready messages, the message is considered Delivered
+            10) once you receive at least delivery_threshold Ready messages, the message is considered Delivered
             """
 
             # Algorithm (Gossiper)
