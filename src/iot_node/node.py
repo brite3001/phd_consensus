@@ -126,8 +126,6 @@ class Node:
             bm_hash = hash(message)
             self.received_messages[bm_hash] = message
 
-            print("received batched message, broadcasting response")
-
             es = Response(
                 "EchoResponse",
                 str(bm_hash),
@@ -147,7 +145,7 @@ class Node:
                     self.command(es)
                 else:
                     # if you haven't received the message yet, ignore
-                    print(f"Havent received {message.batched_messages_hash} yet")
+                    pass
             if message.message_type == "ReadySubscribe":
                 if (
                     self.ready_replies[message.batched_messages_hash]
@@ -175,7 +173,7 @@ class Node:
     # Listeners        #
     ####################
     async def router_listener(self):
-        self.my_logger.info("Starting Router")
+        self.my_logger.debug("Starting Router")
 
         while True:
             if not self.running:
@@ -256,30 +254,32 @@ class Node:
             self._router.write([recv[0], b"", b"OK"])
 
     async def subscriber_listener(self):
-        self.my_logger.info("Starting Subscriber")
+        self.my_logger.debug("Starting Subscriber")
 
         while True:
             if not self.running:
                 break
 
             recv = await self._subscriber.read()
-            print("received a broadcast")
 
-            if len(recv) == 2:
-                self.my_logger.info("Received unsigned published message")
-            elif len(recv) == 3:
-                self.my_logger.info("Received signed published message")
+            # if len(recv) == 2:
+            #     self.my_logger.info("Received unsigned published message")
+            # elif len(recv) == 3:
+            #     self.my_logger.info("Received signed published message")
 
             # topic is recv[0]
             message = recv[1]
             message = json.loads(message.decode())
 
-            print(message)
-
             if message["message_type"] == "EchoResponse":
                 message = Response(**message)
-                echo_sig = recv[2]
+                echo_sig = json.loads(recv[2].decode())
                 message.verify_echo_response(echo_sig)
+                publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
+                self.my_logger.info(
+                    f"Received EchoResponse for {message.topic} from {publisher}"
+                )
+
             else:
                 self.my_logger.warning("Couldnt find matching class for message!!")
 
@@ -510,7 +510,6 @@ class Node:
         elif issubclass(type(command_obj), Echo):
             asyncio.create_task(self.send_signed_echo(command_obj, receiver))
         elif issubclass(type(command_obj), Response):
-            print(f"publishing {command_obj}")
             asyncio.create_task(self.publish_signed_echo_response(command_obj))
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.unsigned_direct_message(command_obj, receiver))
@@ -564,17 +563,19 @@ class Node:
                 self.peers[s2p.peer_id].publisher_address
             )
             self.connected_subscribers.add(s2p.peer_id)
-            self.my_logger.info(
-                f"Connected to {self.peers[s2p.peer_id].publisher_address}"
+            self.my_logger.debug(
+                f"Connected to publisher: {self.peers[s2p.peer_id].publisher_address}"
             )
 
         if s2p.topic not in self.subscribed_topics:
             self._subscriber.transport.subscribe(s2p.topic)
             self.subscribed_topics.add(s2p.topic)
-            self.my_logger.info(f"Subscribed to {s2p.topic}")
+            self.my_logger.debug(f"Subscribed to: {s2p.topic}")
 
     async def unsubscribe(self, unsub: UnsubscribeFromTopic):
-        self._subscriber.transport.unsubscribe(unsub.topic)
+        if unsub.topic in self.subscribed_topics:
+            self._subscriber.transport.unsubscribe(unsub.topic)
+            self.my_logger.debug(f"Unsubscribed from topic: {unsub.topic}")
 
     async def init_sockets(self):
         self._subscriber = await aiozmq.create_zmq_stream(zmq.SUB)
@@ -604,7 +605,7 @@ class Node:
 
         self.my_logger = get_logger(self.id)
 
-        self.my_logger.info("Started PUB/SUB Sockets", extra={"published": "aaaa"})
+        self.my_logger.debug("Started PUB/SUB Sockets", extra={"published": "aaaa"})
 
     def stop(self):
         self.running = False

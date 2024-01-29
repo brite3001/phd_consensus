@@ -72,23 +72,7 @@ async def main():
             message_type="Gossip",
         )
 
-        s2p = SubscribeToPublisher(n2.id, b"aaa")
-        n1.command(s2p)
-        s2p = SubscribeToPublisher(n3.id, b"aaa")
-        n1.command(s2p)
-        s2p = SubscribeToPublisher(n2.id, b"aaa")
-        n1.command(s2p)
-        s2p = SubscribeToPublisher(n3.id, b"aaa")
-        n1.command(s2p)
-
-        # pm = PublishMessage("Publish", "aaa")
-
-        # n2.command(pm)
-        # n3.command(pm)
-
-        e = Response("HelloMotto", "aaa", n2._crypto_keys.ecdsa_public_key_tuple)
-
-        n2.command(e)
+        n1.command(gos)
 
         # n1.command(gos, "tcp://127.0.0.1:20002")
         # n1.command(gos, "tcp://127.0.0.1:20002")
@@ -102,7 +86,7 @@ async def main():
         # n1.command(gos, "tcp://127.0.0.1:20002")
 
         # print(n2.received_messages)
-        await asyncio.sleep(5)
+        await asyncio.sleep(1)
 
 
 async def shutdown(signal, loop):
