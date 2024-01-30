@@ -105,16 +105,12 @@ class Node:
 
     # SBRB Specific Variables
     gossip_queue: Queue = field(factory=Queue)
-    received_messages: dict = field(factory=dict)
+    received_messages: dict[str, BatchedMessages] = field(factory=dict)
     message_index: int = field(factory=int)
 
     echo_replies: defaultdict[str, int] = defaultdict(int)  # str == node_id
 
     ready_replies: defaultdict[str, int] = defaultdict(int)  # str == node_id
-
-    received_batched_messages: dict[str, BatchedMessages] = defaultdict(
-        BatchedMessages
-    )  # str is the hash of batchedmsg
 
     ####################
     # Inbox            #
@@ -139,7 +135,7 @@ class Node:
 
         elif isinstance(message, Echo):
             if message.message_type == "EchoSubscribe":
-                if message.batched_messages_hash in self.received_batched_messages:
+                if message.batched_messages_hash in self.received_messages:
                     # publish an echo_reply for that particular message hash
                     es = Response(
                         "EchoResponse",
@@ -202,32 +198,37 @@ class Node:
                 asyncio.create_task(self.inbox(dm))
             elif msg["message_type"] == "BatchedMessage":
                 msg["messages"] = tuple([Gossip(**x) for x in msg["messages"]])
-                creator_signature = json.loads(recv[4].decode())
-                sender_signature = json.loads(recv[6].decode())
                 bm = BatchedMessages(**msg)
+                bm_hash = hash(bm)
 
-                creator_sig_check = bm.verify_creator_and_sender(
-                    creator_signature, "creator"
-                )
-                sender_sig_check = bm.verify_creator_and_sender(
-                    sender_signature, "sender"
-                )
-                # agg_msg_sig_check = bm.verify_aggregated_bls_signature()
-                agg_msg_sig_check = True
+                if bm_hash not in self.received_messages:
+                    creator_signature = json.loads(recv[4].decode())
+                    sender_signature = json.loads(recv[6].decode())
 
-                creator_id = self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa)
-                sender_id = self._crypto_keys.ecdsa_tuple_to_id(bm.sender_ecdsa)
-
-                if creator_sig_check and sender_sig_check and agg_msg_sig_check:
-                    self.my_logger.info(
-                        f"Received BatchedMessage from: {sender_id} created by {creator_id}"
+                    creator_sig_check = bm.verify_creator_and_sender(
+                        creator_signature, "creator"
                     )
+                    sender_sig_check = bm.verify_creator_and_sender(
+                        sender_signature, "sender"
+                    )
+                    # agg_msg_sig_check = bm.verify_aggregated_bls_signature()
+                    agg_msg_sig_check = True
 
-                    asyncio.create_task(self.inbox(bm))
+                    creator_id = self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa)
+                    sender_id = self._crypto_keys.ecdsa_tuple_to_id(bm.sender_ecdsa)
+
+                    if creator_sig_check and sender_sig_check and agg_msg_sig_check:
+                        self.my_logger.info(
+                            f"Received BatchedMessage from: {sender_id} created by {creator_id}"
+                        )
+
+                        asyncio.create_task(self.inbox(bm))
+                    else:
+                        self.my_logger.warning(
+                            f"Signature verification failed for {bm} | creator {creator_id} | sender {sender_id}"
+                        )
                 else:
-                    self.my_logger.warning(
-                        f"Signature verification failed for {bm} | creator {creator_id} | sender {sender_id}"
-                    )
+                    self.my_logger.debug(f"Already received BM: {bm_hash}")
             elif msg["message_type"] == "PeerDiscovery":
                 pd = PeerDiscovery(**msg)
                 creator_id = self._crypto_keys.ecdsa_tuple_to_id(pd.ecdsa_public_key)
@@ -282,7 +283,7 @@ class Node:
                 echo_sig = json.loads(recv[2].decode())
                 sig_check = message.verify_echo_response(echo_sig)
                 publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
-                self.my_logger.info(
+                self.my_logger.debug(
                     f"Received EchoResponse for {message.topic} from {publisher}"
                 )
 
@@ -297,7 +298,7 @@ class Node:
                 echo_sig = json.loads(recv[2].decode())
                 sig_check = message.verify_echo_response(echo_sig)
                 publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
-                self.my_logger.info(
+                self.my_logger.debug(
                     f"Received ReadyResponse for {message.topic} from {publisher}"
                 )
 
@@ -404,7 +405,6 @@ class Node:
             asyncio.create_task(self.gossip(bm))
 
     async def gossip(self, bm: BatchedMessages):
-        print("rawwwr")
         batched_message_hash = str(hash(bm))
 
         # Step 1

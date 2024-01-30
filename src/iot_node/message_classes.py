@@ -125,6 +125,9 @@ class BatchedMessages:
 
     merkle_root: str = field(validator=[validators.instance_of(str)])
 
+    def __hash__(self):
+        return hash(self.get_creator_bytes())
+
     def get_creator_bytes(self):
         creator_bytes = (
             self.message_type
