@@ -133,6 +133,10 @@ class Node:
             )
             self.command(es)
 
+            bm = message.become_sender(self._crypto_keys)
+            # regossip the message from the original creator, now with you as sender
+            asyncio.create_task(self.gossip(bm))
+
         elif isinstance(message, Echo):
             if message.message_type == "EchoSubscribe":
                 if message.batched_messages_hash in self.received_batched_messages:
@@ -208,11 +212,13 @@ class Node:
                 sender_sig_check = bm.verify_creator_and_sender(
                     sender_signature, "sender"
                 )
+                # agg_msg_sig_check = bm.verify_aggregated_bls_signature()
+                agg_msg_sig_check = True
 
                 creator_id = self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa)
                 sender_id = self._crypto_keys.ecdsa_tuple_to_id(bm.sender_ecdsa)
 
-                if creator_sig_check and sender_sig_check:
+                if creator_sig_check and sender_sig_check and agg_msg_sig_check:
                     self.my_logger.info(
                         f"Received BatchedMessage from: {sender_id} created by {creator_id}"
                     )
@@ -282,6 +288,21 @@ class Node:
 
                 if sig_check:
                     self.echo_replies[message.topic] += 1
+                else:
+                    self.my_logger.warning(
+                        f"Signature check for message {message.topic} from {publisher} failed!!"
+                    )
+            elif message["message_type"] == "ReadyResponse":
+                message = Response(**message)
+                echo_sig = json.loads(recv[2].decode())
+                sig_check = message.verify_echo_response(echo_sig)
+                publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
+                self.my_logger.info(
+                    f"Received ReadyResponse for {message.topic} from {publisher}"
+                )
+
+                if sig_check:
+                    self.ready_replies[message.topic] += 1
                 else:
                     self.my_logger.warning(
                         f"Signature check for message {message.topic} from {publisher} failed!!"
@@ -357,7 +378,8 @@ class Node:
     ####################
     # AT2 Consensus    #
     ####################
-    async def gossip(self, gossip: Gossip):
+
+    async def batch_message_builder(self, gossip: Gossip):
         self.gossip_queue.put(gossip)
 
         if self.gossip_queue.qsize() >= self.minimum_transactions_to_batch:
@@ -375,131 +397,127 @@ class Node:
                 creator_ecdsa=self._crypto_keys.ecdsa_public_key_tuple,
                 sender_ecdsa=self._crypto_keys.ecdsa_public_key_tuple,
                 messages=tuple(messages),
-                messages_agg_sig=self.sign_messages_with_BLS(messages),
+                aggregated_bls_signature=self.sign_messages_with_BLS(messages),
                 merkle_root=mtree.root,
             )
 
-            batched_message_hash = str(hash(bm))
+            asyncio.create_task(self.gossip(bm))
 
-            # Step 1
-            echo_subscribe = random.sample(
-                list(self.peers), self.at2_config.echo_sample_size
-            )
+    async def gossip(self, bm: BatchedMessages):
+        print("rawwwr")
+        batched_message_hash = str(hash(bm))
 
-            # Step 2
-            for peer_id in echo_subscribe:
-                s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
-                self.command(s2p)
+        # Step 1
+        echo_subscribe = random.sample(
+            list(self.peers), self.at2_config.echo_sample_size
+        )
 
-            # Step 3
-            es = Echo(
-                "EchoSubscribe",
+        # Step 2
+        for peer_id in echo_subscribe:
+            s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
+            self.command(s2p)
+
+        # Step 3
+        es = Echo(
+            "EchoSubscribe",
+            batched_message_hash,
+            self._crypto_keys.ecdsa_public_key_tuple,
+        )
+
+        for peer_id in echo_subscribe:
+            self.command(es, peer_id)
+
+        # Step 4
+        ready_subscribe = random.sample(
+            list(self.peers), self.at2_config.ready_sample_size
+        )
+
+        # Step 5
+        for peer_id in ready_subscribe:
+            s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
+            self.command(s2p)
+
+        # Step 6
+        rs = Echo(
+            "ReadySubscribe",
+            batched_message_hash,
+            self._crypto_keys.ecdsa_public_key_tuple,
+        )
+
+        for peer_id in ready_subscribe:
+            self.command(rs, peer_id)
+
+        # Step 7
+        self.message_index += 1
+
+        # step 8
+        if (
+            self.ready_replies[batched_message_hash]
+            >= self.at2_config.feedback_threshold
+        ):
+            # if we've already received feedback_threshold number of ready_replies
+            # we can avoid sending the batched message out altogether
+            # (as per 9B)
+            ready = Response(
+                "ReadyResponse",
                 batched_message_hash,
                 self._crypto_keys.ecdsa_public_key_tuple,
             )
 
+            self.command(ready)
+        else:
+            # If we're the original creator of the batched message, we'll end up here.
             for peer_id in echo_subscribe:
-                self.command(es, peer_id)
-                # await asyncio.sleep(0.1)
+                self.command(bm, peer_id)
 
-            # Step 4
-            ready_subscribe = random.sample(
-                list(self.peers), self.at2_config.ready_sample_size
-            )
+        # Step 9
+        retries = 0
+        while self.echo_replies[batched_message_hash] < self.at2_config.ready_threshold:
+            if retries == 50:
+                break
+            await asyncio.sleep(0.1)
 
-            # Step 5
-            for peer_id in ready_subscribe:
-                s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
-                self.command(s2p)
+            retries += 1
 
-            # Step 6
-            rs = Echo(
-                "ReadySubscribe",
+        if self.echo_replies[batched_message_hash] >= self.at2_config.ready_threshold:
+            ready = Response(
+                "ReadyResponse",
                 batched_message_hash,
                 self._crypto_keys.ecdsa_public_key_tuple,
             )
 
-            for peer_id in ready_subscribe:
-                self.command(rs, peer_id)
-                # await asyncio.sleep(0.1)
+            self.command(ready)
+            self.my_logger.warning(f"Ready for: {batched_message_hash}")
+        else:
+            self.my_logger.error(
+                f"Didnt reach echo threshold for: {batched_message_hash} got: {self.echo_replies} needed: {self.at2_config.ready_threshold}"
+            )
 
-            # Step 7
-            self.message_index += 1
+        # Step 10
+        retries = 0
+        while (
+            self.ready_replies[batched_message_hash]
+            < self.at2_config.delivery_threshold
+        ):
+            if retries == 50:
+                break
 
-            # step 8
-            if (
-                self.ready_replies[batched_message_hash]
-                >= self.at2_config.feedback_threshold
-            ):
-                # if we've already received feedback_threshold number of ready_replies
-                # we can avoid sending the batched message out altogether
-                # (as per 9B)
-                ready = Response(
-                    "ReadyResponse",
-                    batched_message_hash,
-                    self._crypto_keys.ecdsa_public_key_tuple,
-                )
+            await asyncio.sleep(0.1)
 
-                self.command(ready)
-            else:
-                # If we're the original creator of the batched message, we'll end up here.
-                for peer_id in echo_subscribe:
-                    self.command(bm, peer_id)
+            retries += 1
 
-            # Step 9
-            retries = 0
-            while (
-                self.echo_replies[batched_message_hash]
-                < self.at2_config.ready_threshold
-            ):
-                if retries == 50:
-                    break
-                await asyncio.sleep(0.1)
+        if (
+            self.ready_replies[batched_message_hash]
+            >= self.at2_config.delivery_threshold
+        ):
+            self.my_logger.warning(f"{batched_message_hash} has been delivered!")
+        else:
+            self.my_logger.warning(
+                f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash}"
+            )
 
-                retries += 1
-
-            if (
-                self.echo_replies[batched_message_hash]
-                >= self.at2_config.ready_threshold
-            ):
-                ready = Response(
-                    "ReadyResponse",
-                    batched_message_hash,
-                    self._crypto_keys.ecdsa_public_key_tuple,
-                )
-
-                self.command(ready)
-                self.my_logger.warning(f"Ready for: {batched_message_hash}")
-            else:
-                self.my_logger.error(
-                    f"Didnt reach echo threshold for: {batched_message_hash} got: {self.echo_replies} needed: {self.at2_config.ready_threshold}"
-                )
-
-            # Step 10
-            retries = 0
-            while (
-                self.ready_replies[batched_message_hash]
-                < self.at2_config.delivery_threshold
-            ):
-                if retries == 50:
-                    break
-
-                await asyncio.sleep(0.1)
-
-                retries += 1
-
-            if (
-                self.ready_replies[batched_message_hash]
-                >= self.at2_config.delivery_threshold
-            ):
-                self.my_logger.warning(f"{batched_message_hash} has been delivered!")
-            else:
-                self.my_logger.warning(
-                    f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash}"
-                )
-
-            # setup variables
-            """
+        # setup variables
+        """
             Subscribing and sample sizes
             echo_subscribe / echo_sample_size
             ready_subscribe / ready_sample_size / delivery_sample_size
@@ -518,8 +536,8 @@ class Node:
             Message index    
             """
 
-            # Algorithm (Sender)
-            """
+        # Algorithm (Sender)
+        """
             Setup
             1) Create an echo_subscribe group of size echo_sample_size
             2) Subscribe to the publisher of all nodes in echo_subscribe
@@ -539,8 +557,8 @@ class Node:
             10) once you receive at least delivery_threshold Ready messages, the message is considered Delivered
             """
 
-            # Algorithm (Gossiper)
-            """
+        # Algorithm (Gossiper)
+        """
             Basically same as above, except a little check is added which may avoid sending the message again.
             When sending an EchoSubscribe message and a ReadySubscribe message, if the nodes in your echo_subscribe
             and ready_subscribe groups have already reached the
@@ -564,7 +582,7 @@ class Node:
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
         elif isinstance(command_obj, Gossip):
-            asyncio.create_task(self.gossip(command_obj))
+            asyncio.create_task(self.batch_message_builder(command_obj))
         elif isinstance(command_obj, UnsubscribeFromTopic):
             asyncio.create_task(self.unsubscribe(command_obj))
         elif issubclass(type(command_obj), BatchedMessages):

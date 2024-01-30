@@ -73,20 +73,18 @@ async def main():
         )
 
         n1.command(gos)
-
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
+        n1.command(gos)
+        n1.command(gos)
+        n1.command(gos)
+        n1.command(gos)
+        n1.command(gos)
+        n1.command(gos)
         # n1.command(gos, "tcp://127.0.0.1:20002")
         # n1.command(gos, "tcp://127.0.0.1:20002")
         # n1.command(gos, "tcp://127.0.0.1:20002")
 
         # print(n2.received_messages)
-        await asyncio.sleep(1)
+        await asyncio.sleep(10)
 
 
 async def shutdown(signal, loop):

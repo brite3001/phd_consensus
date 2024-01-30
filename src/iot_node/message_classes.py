@@ -116,11 +116,10 @@ class BatchedMessages:
     )  # BLS pubkey, bytes encoded in base64
 
     creator_ecdsa: tuple = field(converter=tuple)
-
     sender_ecdsa: tuple = field(converter=tuple)
 
     messages: Union[Tuple[DirectMessage], Tuple[dict]] = field(converter=tuple)
-    messages_agg_sig: str = field(
+    aggregated_bls_signature: str = field(
         validator=[validators.instance_of(str)]
     )  # bytes encoded as base64
 
@@ -132,7 +131,7 @@ class BatchedMessages:
             + self.creator_bls
             + str(self.creator_ecdsa[0])
             + str(self.creator_ecdsa[1])
-            + self.messages_agg_sig
+            + self.aggregated_bls_signature
             + self.merkle_root
         )
 
@@ -146,7 +145,7 @@ class BatchedMessages:
             + str(self.creator_ecdsa[1])
             + str(self.sender_ecdsa[0])
             + str(self.sender_ecdsa[1])
-            + self.messages_agg_sig
+            + self.aggregated_bls_signature
             + self.merkle_root
         )
 
@@ -163,7 +162,9 @@ class BatchedMessages:
 
         return ecdsa.sign(self.get_sender_bytes(), keys.ecdsa_private_key)
 
-    def verify_creator_and_sender(self, signature: tuple, signature_to_check: str):
+    def verify_creator_and_sender(
+        self, signature: tuple, signature_to_check: str
+    ) -> bool:
         assert signature_to_check in {
             "creator",
             "sender",
@@ -179,20 +180,24 @@ class BatchedMessages:
 
         return sig_check
 
-    # def verify_signatures(self) -> tuple:
-    #     pub_keys = [self.creator for _ in self.messages]
-    #     messages_as_bytes = [json.dumps(asdict(x)).encode() for x in self.messages]
+    def verify_aggregated_bls_signature(self) -> bool:
+        creator_bls_decoded = base64.b64decode(self.creator_bls)
+        pub_keys = [creator_bls_decoded for _ in self.messages]
+        messages_as_bytes = [json.dumps(asdict(x)).encode() for x in self.messages]
 
-    #     messages_sig_check = bls_pop.AggregateVerify(
-    #         pub_keys, messages_as_bytes, self.aggregated_signature
-    #     )
+        aggregated_bls_check = bls_pop.AggregateVerify(
+            pub_keys, messages_as_bytes, base64.b64decode(self.aggregated_bls_signature)
+        )
 
-    #     sender_bytes = json.dumps(asdict(self.sender_info)).encode()
+        return aggregated_bls_check
 
-    #     sender_sig_check = ecdsa.verify(
-    #         self.sender_signature,
-    #         sender_bytes,
-    #         ecdsa_dict_to_point(self.sender_info.sender),
-    #     )
-
-    #     return (messages_sig_check, sender_sig_check)
+    def become_sender(self, keys):
+        return BatchedMessages(
+            message_type=self.message_type,
+            creator_bls=self.creator_bls,
+            creator_ecdsa=self.creator_ecdsa,
+            sender_ecdsa=keys.ecdsa_public_key_tuple,
+            messages=self.messages,
+            aggregated_bls_signature=self.aggregated_bls_signature,
+            merkle_root=self.merkle_root,
+        )
