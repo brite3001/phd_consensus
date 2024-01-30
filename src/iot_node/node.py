@@ -86,8 +86,8 @@ class Node:
     my_logger = field(init=False)
 
     # Info about our peers
-    peers: dict[str, PeerInformation] = field(factory=dict)
-    sockets: dict[PeerSocket] = field(factory=dict)
+    peers: dict[str, PeerInformation] = field(factory=dict)  # str == ECDSA ID
+    sockets: dict[str, PeerSocket] = field(factory=dict)  # str == ECDSA ID
 
     # AIOZMQ Sockets
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
@@ -109,7 +109,6 @@ class Node:
     message_index: int = field(factory=int)
 
     echo_replies: defaultdict[str, int] = defaultdict(int)  # str == node_id
-
     ready_replies: defaultdict[str, int] = defaultdict(int)  # str == node_id
 
     ####################
@@ -119,7 +118,7 @@ class Node:
         # print(f"[{self.id}] Received Message")
 
         if isinstance(message, BatchedMessages):
-            bm_hash = hash(message)
+            bm_hash = str(hash(message))
             self.received_messages[bm_hash] = message
 
             es = Response(
@@ -199,7 +198,7 @@ class Node:
             elif msg["message_type"] == "BatchedMessage":
                 msg["messages"] = tuple([Gossip(**x) for x in msg["messages"]])
                 bm = BatchedMessages(**msg)
-                bm_hash = hash(bm)
+                bm_hash = str(hash(bm))
 
                 if bm_hash not in self.received_messages:
                     creator_signature = json.loads(recv[4].decode())
@@ -219,7 +218,7 @@ class Node:
 
                     if creator_sig_check and sender_sig_check and agg_msg_sig_check:
                         self.my_logger.info(
-                            f"Received BatchedMessage from: {sender_id} created by {creator_id}"
+                            f"Received BatchedMessage {bm_hash} from: {sender_id} created by {creator_id}"
                         )
 
                         asyncio.create_task(self.inbox(bm))
@@ -467,6 +466,7 @@ class Node:
             self.command(ready)
         else:
             # If we're the original creator of the batched message, we'll end up here.
+            self.received_messages[batched_message_hash] = bm
             for peer_id in echo_subscribe:
                 self.command(bm, peer_id)
 
