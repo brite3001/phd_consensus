@@ -107,9 +107,11 @@ class Node:
     gossip_queue: Queue = field(factory=Queue)
     received_messages: dict[str, BatchedMessages] = field(factory=dict)
     message_index: int = field(factory=int)
+    already_received: defaultdict[str, set] = defaultdict(set)
 
-    echo_replies: defaultdict[str, int] = defaultdict(int)  # str == node_id
-    ready_replies: defaultdict[str, int] = defaultdict(int)  # str == node_id
+    # str == msg_hash, set() of peer_ids
+    echo_replies: defaultdict[str, set] = defaultdict(set)
+    ready_replies: defaultdict[str, set] = defaultdict(set)
 
     ####################
     # Inbox            #
@@ -147,7 +149,7 @@ class Node:
                     pass
             if message.message_type == "ReadySubscribe":
                 if (
-                    self.ready_replies[message.batched_messages_hash]
+                    len(self.ready_replies[message.batched_messages_hash])
                     >= self.at2_config.feedback_threshold
                 ):
                     ready = Response(
@@ -191,6 +193,7 @@ class Node:
             #     self.my_logger.warning(f"Received message of unknown length! {recv}")
 
             msg = json.loads(recv[2].decode())
+            router_response = b"OK"
 
             if msg["message_type"] == "DirectMessage":
                 dm = DirectMessage(**msg)
@@ -247,6 +250,10 @@ class Node:
                 #     f"Received {echo_type} from {creator_id} for BatchedMessage {es.batched_messages_hash}"
                 # )
 
+                # Tells the sender not to send this BatchedMessage to us again. We already have it.
+                if es.batched_messages_hash in self.received_messages:
+                    router_response = b"ALREADY_RECEIVED"
+
                 if msg_sig_check:
                     asyncio.create_task(self.inbox(es))
                 else:
@@ -257,7 +264,7 @@ class Node:
             else:
                 self.my_logger.info(f"Received unrecognised message: {msg}")
 
-            self._router.write([recv[0], b"", b"OK"])
+            self._router.write([recv[0], b"", router_response])
 
     async def subscriber_listener(self):
         self.my_logger.debug("Starting Subscriber")
@@ -287,7 +294,7 @@ class Node:
                 )
 
                 if sig_check:
-                    self.echo_replies[message.topic] += 1
+                    self.echo_replies[message.topic].add(publisher)
                 else:
                     self.my_logger.warning(
                         f"Signature check for message {message.topic} from {publisher} failed!!"
@@ -302,7 +309,7 @@ class Node:
                 )
 
                 if sig_check:
-                    self.ready_replies[message.topic] += 1
+                    self.ready_replies[message.topic].add(publisher)
                 else:
                     self.my_logger.warning(
                         f"Signature check for message {message.topic} from {publisher} failed!!"
@@ -365,7 +372,10 @@ class Node:
 
         async with self.rep_lock:
             req_socket.write([message, b"", echo_sig])
-            await req_socket.read()
+            resp = await req_socket.read()
+
+            if resp[0] == b"ALREADY_RECEIVED":
+                self.already_received[echo.batched_messages_hash].add(receiver)
 
     async def publish_signed_echo_response(self, er: Response):
         # print(f"published message {er.message_type}")
@@ -397,7 +407,8 @@ class Node:
                 creator_ecdsa=self._crypto_keys.ecdsa_public_key_tuple,
                 sender_ecdsa=self._crypto_keys.ecdsa_public_key_tuple,
                 messages=tuple(messages),
-                aggregated_bls_signature=self.sign_messages_with_BLS(messages),
+                # aggregated_bls_signature=self.sign_messages_with_BLS(messages),
+                aggregated_bls_signature="111",
                 merkle_root=mtree.root,
             )
 
@@ -407,8 +418,8 @@ class Node:
         batched_message_hash = str(hash(bm))
 
         # Step 1
-        echo_subscribe = random.sample(
-            list(self.peers), self.at2_config.echo_sample_size
+        echo_subscribe = set(
+            random.sample(list(self.peers), self.at2_config.echo_sample_size)
         )
 
         # Step 2
@@ -427,8 +438,8 @@ class Node:
             self.command(es, peer_id)
 
         # Step 4
-        ready_subscribe = random.sample(
-            list(self.peers), self.at2_config.ready_sample_size
+        ready_subscribe = set(
+            random.sample(list(self.peers), self.at2_config.ready_sample_size)
         )
 
         # Step 5
@@ -451,7 +462,7 @@ class Node:
 
         # step 8
         if (
-            self.ready_replies[batched_message_hash]
+            len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
             >= self.at2_config.feedback_threshold
         ):
             # if we've already received feedback_threshold number of ready_replies
@@ -466,20 +477,29 @@ class Node:
             self.command(ready)
         else:
             # If we're the original creator of the batched message, we'll end up here.
+            # If a node has already received this batch message, we avoid re-sending it to them.
             self.received_messages[batched_message_hash] = bm
             for peer_id in echo_subscribe:
-                self.command(bm, peer_id)
+                if peer_id not in self.already_received[batched_message_hash]:
+                    self.command(bm, peer_id)
 
         # Step 9
+        # Using intersection to only count echos from nodes in our echo_subscribe set() we defined earlier
         retries = 0
-        while self.echo_replies[batched_message_hash] < self.at2_config.ready_threshold:
+        while (
+            len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))
+            < self.at2_config.ready_threshold
+        ):
             if retries == 50:
                 break
             await asyncio.sleep(0.1)
 
             retries += 1
 
-        if self.echo_replies[batched_message_hash] >= self.at2_config.ready_threshold:
+        if (
+            len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))
+            >= self.at2_config.ready_threshold
+        ):
             ready = Response(
                 "ReadyResponse",
                 batched_message_hash,
@@ -494,9 +514,10 @@ class Node:
             )
 
         # Step 10
+        # Using intersection to only count ready messages from nodes in our ready_replies set() we defined earlier
         retries = 0
         while (
-            self.ready_replies[batched_message_hash]
+            len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
             < self.at2_config.delivery_threshold
         ):
             if retries == 50:
@@ -507,7 +528,7 @@ class Node:
             retries += 1
 
         if (
-            self.ready_replies[batched_message_hash]
+            len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
             >= self.at2_config.delivery_threshold
         ):
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
@@ -515,6 +536,10 @@ class Node:
             self.my_logger.warning(
                 f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash}"
             )
+
+        unsub = UnsubscribeFromTopic(batched_message_hash.encode())
+
+        self.command(unsub)
 
         # setup variables
         """
@@ -565,14 +590,14 @@ class Node:
             ready_threshold and the feedback_threshold, the node will again broadcast an Echo or Ready message.
 
             Node receives lots of Ready Messages
-            If the gossiping node receives feedback_threshold number of Ready messages, they'll also send out a
-            Ready message. If they receive delivery_threshold number of messages, the node will just immediately
+            If the regossiping node receives feedback_threshold number of Ready messages from nodes
+            in their ready_reply group, they'll immediately send out a
+            Ready message. If they receive delivery_threshold number of messages, the node will immediately
             Deliver the message to the application.
 
             Node receives few Ready messages
             If the node doesn't hit the feedback threshold for their ready_subscribe group when sending a 
-            ReadySubscribe message, the node will send the orginal message and gossip it. The gossiper
-            will not increment the message index, they'll maintain the index chosen by the creator
+            ReadySubscribe message, the node will send the orginal message and regossip it.
             """
 
     ####################

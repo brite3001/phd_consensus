@@ -3,12 +3,10 @@ import asyncio
 import signal
 import uvloop
 import random
+import time
 
 from iot_node.node import Node
 from iot_node.message_classes import Gossip
-from iot_node.message_classes import PublishMessage
-from iot_node.message_classes import Response
-from iot_node.commad_arg_classes import SubscribeToPublisher
 from iot_node.at2_classes import AT2Configuration
 from logs import get_logger
 
@@ -64,27 +62,21 @@ async def main():
     await asyncio.sleep(1)
 
     n1 = nodes[0]
-    n2 = nodes[1]
-    n3 = nodes[2]
 
     while True:
-        gos = Gossip(
-            message_type="Gossip",
-        )
+        gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
+        n = random.choice(nodes)
 
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
-        # n1.command(gos, "tcp://127.0.0.1:20002")
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
 
         # print(n2.received_messages)
-        await asyncio.sleep(20)
+        await asyncio.sleep(5)
 
 
 async def shutdown(signal, loop):
