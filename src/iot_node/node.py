@@ -12,6 +12,7 @@ import zmq
 import json
 import secrets
 import random
+import math
 
 
 from .message_classes import DirectMessage
@@ -102,6 +103,7 @@ class Node:
 
     # Tuneable Values
     minimum_transactions_to_batch: int = field(factory=int)
+    target_transaction_time_in_s: int = 5
 
     # SBRB Specific Variables
     gossip_queue: Queue = field(factory=Queue)
@@ -485,16 +487,16 @@ class Node:
 
         # Step 9
         # Using intersection to only count echos from nodes in our echo_subscribe set() we defined earlier
-        retries = 0
+        retry_time_in_s = 0
         while (
             len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))
             < self.at2_config.ready_threshold
         ):
-            if retries == 50:
+            if retry_time_in_s == 10:
                 break
             await asyncio.sleep(0.1)
 
-            retries += 1
+            retry_time_in_s += 0.1
 
         if (
             len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))
@@ -510,22 +512,35 @@ class Node:
             self.my_logger.warning(f"Ready for: {batched_message_hash}")
         else:
             self.my_logger.error(
-                f"Didnt reach echo threshold for: {batched_message_hash} got: {self.echo_replies} needed: {self.at2_config.ready_threshold}"
+                f"Didnt reach echo threshold for: {batched_message_hash} got: {echo_subscribe.intersection(self.echo_replies[batched_message_hash])} needed: {self.at2_config.ready_threshold}"
             )
+
+        print(f"Time taken for Echo: {retry_time_in_s}")
+
+        # Congestion control
+        if retry_time_in_s > self.target_transaction_time_in_s:
+            batch_increase = math.ceil(
+                retry_time_in_s - self.target_transaction_time_in_s
+            )
+
+            self.my_logger.error(
+                f"Congestion Control: Increasing Batch Size from: {self.minimum_transactions_to_batch} to: {batch_increase}"
+            )
+            self.minimum_transactions_to_batch += batch_increase
 
         # Step 10
         # Using intersection to only count ready messages from nodes in our ready_replies set() we defined earlier
-        retries = 0
+        retry_time_in_s = 0
         while (
             len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
             < self.at2_config.delivery_threshold
         ):
-            if retries == 50:
+            if retry_time_in_s == 10:
                 break
 
             await asyncio.sleep(0.1)
 
-            retries += 1
+            retry_time_in_s += 0.1
 
         if (
             len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
@@ -534,8 +549,20 @@ class Node:
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
         else:
             self.my_logger.warning(
-                f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash}"
+                f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash} got: {ready_subscribe.intersection(self.ready_replies[batched_message_hash])} needed: {self.at2_config.delivery_threshold}"
             )
+
+        print(f"Time taken for ready: {retry_time_in_s}")
+
+        # Congestion Control
+        if retry_time_in_s > self.target_transaction_time_in_s:
+            batch_increase = math.ceil(
+                retry_time_in_s - self.target_transaction_time_in_s
+            )
+            self.my_logger.error(
+                f"Congestion Control: Increasing Batch Size from: {self.minimum_transactions_to_batch} to: {batch_increase}"
+            )
+            self.minimum_transactions_to_batch += batch_increase
 
         unsub = UnsubscribeFromTopic(batched_message_hash.encode())
 

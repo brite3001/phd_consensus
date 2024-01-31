@@ -76,7 +76,7 @@ async def main():
         n.command(gos)
 
         # print(n2.received_messages)
-        await asyncio.sleep(5)
+        await asyncio.sleep(1)
 
 
 async def shutdown(signal, loop):
