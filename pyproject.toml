@@ -18,6 +18,7 @@ dependencies = [
     "merkly>=0.8.1",
     "python-json-logger>=2.0.7",
     "colorlog>=6.8.0",
+    "apscheduler>=3.10.4",
 ]
 requires-python = ">=3.10"
 readme = "README.md"

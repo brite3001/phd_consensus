@@ -47,12 +47,14 @@ async def main():
         router_start += 1
         publisher_start += 1
 
+    logging.info("Spinning up nodes...")
     for node in nodes:
         await node.init_sockets()
         await node.start()
 
     await asyncio.sleep(2.5)
 
+    logging.info("Running peer discovery...")
     for node in nodes:
         await node.peer_discovery(deepcopy(router_list))
 
