@@ -65,7 +65,9 @@ async def main():
 
     n1 = nodes[0]
 
-    while True:
+    start_time = time.time()
+    for i in range(200):
+        print(i)
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
 
@@ -78,7 +80,13 @@ async def main():
         n.command(gos)
 
         # print(n2.received_messages)
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
+    end_time = time.time()
+
+    print(f"Time taken: {round(end_time - start_time, 3)}s")
+    for n in nodes:
+        n.statistics()
+        print("---------------------------")
 
 
 async def shutdown(signal, loop):

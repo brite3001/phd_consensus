@@ -4,7 +4,6 @@ from fastecdsa import curve, keys, point
 from merkly.mtree import MerkleTree
 from collections import defaultdict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from queue import Queue
 import base64
 import asyncio
 import aiozmq
@@ -104,14 +103,13 @@ class Node:
     target_block_time: int = 5
     current_block_time: int = field(factory=int)
 
-    # SBRB Specific Variables #
-
     # Congestion control
     scheduler = field(init=False)
     pending_gossips: list = field(factory=list)
     batched_message_job_id = field(init=False)
-    last_10_block_times: list = field(factory=list)
+    block_times: list = field(factory=list)
 
+    # SBRB Specific Variables #
     received_messages: dict[str, BatchedMessages] = field(factory=dict)
     message_index: int = field(factory=int)
     already_received: defaultdict[str, set] = defaultdict(set)
@@ -120,6 +118,11 @@ class Node:
     echo_replies: defaultdict[str, set] = defaultdict(set)
     ready_replies: defaultdict[str, set] = defaultdict(set)
 
+    # Statistics
+    sent_gossips: int = field(factory=int)
+    received_gossips: int = field(factory=int)
+    delivered_gossips: int = field(factory=int)
+
     ####################
     # Inbox            #
     ####################
@@ -127,6 +130,7 @@ class Node:
         # print(f"[{self.id}] Received Message")
 
         if isinstance(message, BatchedMessages):
+            self.received_gossips += 1
             bm_hash = str(hash(message))
             self.received_messages[bm_hash] = message
 
@@ -392,15 +396,22 @@ class Node:
 
         self._publisher.write([er.topic.encode(), message, echo_sig])
 
-    ####################
-    # AT2 Consensus    #
-    ####################
+    ######################
+    # Congestion Control #
+    ######################
 
-    # Congestion Control
+    def block_time_ema(self, alpha):
+        ema = [self.block_times[0]]  # Initial value is the first data point
+
+        for i in range(1, len(self.block_times)):
+            ema_value = alpha * self.block_times[i] + (1 - alpha) * ema[i - 1]
+            ema.append(ema_value)
+
+        return ema
+
     async def add_to_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
 
-    # Congestion Control
     async def batch_message_builder(self):
         if len(self.pending_gossips) >= 1:
             mtree = MerkleTree([str(hash(x)) for x in self.pending_gossips])
@@ -418,7 +429,37 @@ class Node:
 
             asyncio.create_task(self.gossip(bm))
 
+            self.sent_gossips += 1
             self.pending_gossips.clear()
+
+    async def congestion_monitoring(self):
+        # Increase the block time if we start overshooting the target
+        if len(self.block_times) >= 10:
+            block_ema = self.block_time_ema(0.85)
+            # ema_val = sum(block_ema[-10:]) / 10
+            ema_val = block_ema[-1]
+
+            if ema_val > self.current_block_time:
+                self.current_block_time *= 1.25
+                self.my_logger.error(
+                    f"Congestion Control: Target {self.target_block_time} AVG EMA: {round(ema_val, 3)} New Target: {self.current_block_time}"
+                )
+
+                await asyncio.sleep(random.randint(1, 2))
+                self.scheduler.remove_job(self.batched_message_job_id)
+                updated_job = self.scheduler.add_job(
+                    self.batch_message_builder,
+                    trigger="interval",
+                    seconds=self.current_block_time,
+                )
+                self.batched_message_job_id = updated_job.id
+            elif ema_val < self.current_block_time:
+                # self.my_logger.error(f"EMA: {avg_ema} {block_ema}")
+                pass
+
+    ####################
+    # AT2 Consensus    #
+    ####################
 
     # AT2 starts here
     async def gossip(self, bm: BatchedMessages):
@@ -538,54 +579,14 @@ class Node:
             len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
             >= self.at2_config.delivery_threshold
         ):
+            self.delivered_gossips += 1
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
         else:
             self.my_logger.warning(
                 f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash} got: {ready_subscribe.intersection(self.ready_replies[batched_message_hash])} needed: {self.at2_config.delivery_threshold}"
             )
 
-        self.last_10_block_times.append(retry_time_ready + retry_time_echo)
-
-        # Congestion Control
-        if retry_time_ready + retry_time_echo > self.target_block_time:
-            # Increase the block time if we start overshooting the target
-            self.current_block_time += 1
-            self.my_logger.error(
-                f"Congestion Control: Target {self.target_block_time} Actual: {round(retry_time_ready + retry_time_echo, 2)} New Target: {self.current_block_time}"
-            )
-
-            await asyncio.sleep(random.randint(1, 2))
-            self.scheduler.remove_job(self.batched_message_job_id)
-            updated_job = self.scheduler.add_job(
-                self.batch_message_builder,
-                trigger="interval",
-                seconds=self.current_block_time,
-            )
-            self.batched_message_job_id = updated_job.id
-
-        if len(self.last_10_block_times) >= 50:
-            # check if the last few blocks are back in line with the target time
-            last_10_avg = int(
-                sum(self.last_10_block_times) / len(self.last_10_block_times)
-            )
-            if (
-                last_10_avg < self.target_block_time
-                and self.current_block_time - 1 >= self.target_block_time
-            ):
-                self.current_block_time -= 1
-                self.my_logger.error(
-                    f"Congestion Easing: Target {self.target_block_time} Last 50: {last_10_avg} New Target: {self.current_block_time}"
-                )
-
-                await asyncio.sleep(random.randint(1, 2))
-                self.scheduler.remove_job(self.batched_message_job_id)
-                updated_job = self.scheduler.add_job(
-                    self.batch_message_builder,
-                    trigger="interval",
-                    seconds=self.current_block_time,
-                )
-                self.batched_message_job_id = updated_job.id
-                self.last_10_block_times.clear()
+        self.block_times.append(retry_time_ready + retry_time_echo)
 
         unsub = UnsubscribeFromTopic(batched_message_hash.encode())
 
@@ -762,6 +763,13 @@ class Node:
 
         self.my_logger.debug("Started PUB/SUB Sockets", extra={"published": "aaaa"})
 
+    def statistics(self):
+        print(f"ID: {self.id}")
+        print(f"Sent BMs: {self.sent_gossips} / Received BMs: {self.received_gossips}")
+        print(f"Messages Delivered: {self.delivered_gossips}")
+        print(f"Average RTT: {sum(self.block_times) / len(self.block_times)}")
+        print(f"Min RTT: {min(self.block_times)} / Max RTT {max(self.block_times)}")
+
     def stop(self):
         self.running = False
         self._publisher.close()
@@ -781,6 +789,9 @@ class Node:
         self.scheduler = AsyncIOScheduler()
         job = self.scheduler.add_job(
             self.batch_message_builder, trigger="interval", seconds=5
+        )
+        self.scheduler.add_job(
+            self.congestion_monitoring, trigger="interval", seconds=5
         )
         self.batched_message_job_id = job.id
 
