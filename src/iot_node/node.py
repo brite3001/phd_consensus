@@ -511,21 +511,10 @@ class Node:
         # step 8
         if (
             len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
-            >= self.at2_config.feedback_threshold
+            < self.at2_config.feedback_threshold
         ):
-            # if we've already received feedback_threshold number of ready_replies
-            # we can avoid sending the batched message out altogether
-            # (as per 9B)
-            ready = Response(
-                "ReadyResponse",
-                batched_message_hash,
-                self._crypto_keys.ecdsa_public_key_tuple,
-            )
-
-            self.command(ready)
-        else:
-            # If we're the original creator of the batched message, we'll end up here.
-            # If a node has already received this batch message, we avoid re-sending it to them.
+            # If the message doesn't have enough ready_replies, assume it hasn't been propagated
+            # enough, send the message to our echo_subscribe group
             self.received_messages[batched_message_hash] = bm
             for peer_id in echo_subscribe:
                 if peer_id not in self.already_received[batched_message_hash]:
