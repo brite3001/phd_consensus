@@ -19,6 +19,8 @@ dependencies = [
     "python-json-logger>=2.0.7",
     "colorlog>=6.8.0",
     "apscheduler>=3.10.4",
+    "talipp>=2.0.0",
+    "matplotlib>=3.8.2",
 ]
 requires-python = ">=3.10"
 readme = "README.md"

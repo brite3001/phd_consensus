@@ -4,6 +4,7 @@ from fastecdsa import curve, keys, point
 from merkly.mtree import MerkleTree
 from collections import defaultdict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from talipp.indicators import ZLEMA
 import base64
 import asyncio
 import aiozmq
@@ -11,6 +12,7 @@ import zmq
 import json
 import secrets
 import random
+import time
 
 
 from .message_classes import DirectMessage
@@ -100,7 +102,7 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_block_time: int = 5
+    target_block_time: int = 8
     current_block_time: int = field(factory=int)
 
     # Congestion control
@@ -122,6 +124,8 @@ class Node:
     sent_gossips: int = field(factory=int)
     received_gossips: int = field(factory=int)
     delivered_gossips: int = field(factory=int)
+    sent_msg_metadata: list = field(factory=list)
+    received_msg_metadata: list = field(factory=list)
 
     ####################
     # Inbox            #
@@ -400,15 +404,6 @@ class Node:
     # Congestion Control #
     ######################
 
-    def block_time_ema(self, alpha):
-        ema = [self.block_times[0]]  # Initial value is the first data point
-
-        for i in range(1, len(self.block_times)):
-            ema_value = alpha * self.block_times[i] + (1 - alpha) * ema[i - 1]
-            ema.append(ema_value)
-
-        return ema
-
     async def add_to_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
 
@@ -430,22 +425,25 @@ class Node:
             asyncio.create_task(self.gossip(bm))
 
             self.sent_gossips += 1
+            self.sent_msg_metadata.append(
+                (len(self.pending_gossips), time.time(), self.id)
+            )
             self.pending_gossips.clear()
 
     async def congestion_monitoring(self):
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 10:
-            block_ema = self.block_time_ema(0.85)
-            # ema_val = sum(block_ema[-10:]) / 10
-            ema_val = block_ema[-1]
+            tema = ZLEMA(3, self.block_times)
+            ema_val = round(tema[-1], 3)
 
             if ema_val > self.current_block_time:
+                #
                 self.current_block_time *= 1.25
                 self.my_logger.error(
-                    f"Congestion Control: Target {self.target_block_time} AVG EMA: {round(ema_val, 3)} New Target: {self.current_block_time}"
+                    f"Congestion Control: Target {self.target_block_time} AVG EMA: {ema_val} New Target: {self.current_block_time}"
                 )
 
-                await asyncio.sleep(random.randint(1, 2))
+                # await asyncio.sleep(random.randint(1, 3))
                 self.scheduler.remove_job(self.batched_message_job_id)
                 updated_job = self.scheduler.add_job(
                     self.batch_message_builder,
@@ -453,9 +451,23 @@ class Node:
                     seconds=self.current_block_time,
                 )
                 self.batched_message_job_id = updated_job.id
-            elif ema_val < self.current_block_time:
-                # self.my_logger.error(f"EMA: {avg_ema} {block_ema}")
-                pass
+            if (
+                ema_val < self.current_block_time
+                and self.current_block_time >= self.target_block_time + 1
+            ):
+                self.current_block_time -= 1
+                self.my_logger.warning(
+                    f"Congestion Control: Target {self.target_block_time} AVG EMA: {ema_val} New Target: {self.current_block_time}"
+                )
+
+                # await asyncio.sleep(random.randint(1, 3))
+                self.scheduler.remove_job(self.batched_message_job_id)
+                updated_job = self.scheduler.add_job(
+                    self.batch_message_builder,
+                    trigger="interval",
+                    seconds=self.current_block_time,
+                )
+                self.batched_message_job_id = updated_job.id
 
     ####################
     # AT2 Consensus    #
@@ -576,9 +588,12 @@ class Node:
             )
 
         self.block_times.append(retry_time_ready + retry_time_echo)
+        self.received_msg_metadata.append(
+            (retry_time_ready + retry_time_echo, time.time())
+        )
 
+        # Step 11
         unsub = UnsubscribeFromTopic(batched_message_hash.encode())
-
         self.command(unsub)
 
         # setup variables
