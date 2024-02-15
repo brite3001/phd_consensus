@@ -102,7 +102,7 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_block_time: int = 8
+    target_block_time: int = 5
     current_block_time: int = field(factory=int)
 
     # Congestion control
@@ -111,6 +111,7 @@ class Node:
     pending_responses: list[Response] = field(factory=list)
     batched_message_job_id = field(init=False)
     block_times: list = field(factory=list)
+    job_time_change_flag: bool = field(factory=bool)
 
     # SBRB Specific Variables #
     received_messages: dict[str, BatchedMessages] = field(factory=dict)
@@ -462,44 +463,41 @@ class Node:
             )
             self.pending_gossips.clear()
 
-    async def congestion_monitoring_job(self):
+        if self.job_time_change_flag:
+            self.scheduler.remove_job(self.batched_message_job_id)
+            updated_job = self.scheduler.add_job(
+                self.batch_message_builder_job,
+                trigger="interval",
+                seconds=self.current_block_time,
+            )
+            self.batched_message_job_id = updated_job.id
+            self.job_time_change_flag = False
+
+    async def increasing_congestion_monitoring_job(self):
         # Increase the block time if we start overshooting the target
-        if len(self.block_times) >= 10:
-            tema = ZLEMA(3, self.block_times)
+        if len(self.block_times) >= 15:
+            tema = ZLEMA(6, self.block_times)
             ema_val = round(tema[-1], 3)
 
             if ema_val > self.current_block_time:
                 #
                 self.current_block_time *= 1.25
                 self.my_logger.error(
-                    f"Congestion Control: Target {self.target_block_time} AVG EMA: {ema_val} New Target: {self.current_block_time}"
+                    f"Congestion Control (/\): Target {self.target_block_time} AVG EMA: {ema_val} New Target: {self.current_block_time}"
                 )
+                self.job_time_change_flag = True
 
-                # await asyncio.sleep(random.randint(1, 3))
-                self.scheduler.remove_job(self.batched_message_job_id)
-                updated_job = self.scheduler.add_job(
-                    self.batch_message_builder,
-                    trigger="interval",
-                    seconds=self.current_block_time,
-                )
-                self.batched_message_job_id = updated_job.id
-            if (
-                ema_val < self.current_block_time
-                and self.current_block_time >= self.target_block_time + 1
-            ):
-                self.current_block_time -= 1
-                self.my_logger.warning(
-                    f"Congestion Control: Target {self.target_block_time} AVG EMA: {ema_val} New Target: {self.current_block_time}"
-                )
+    async def decreasing_congestion_monitoring_job(self):
+        if len(self.block_times) >= 30:
+            tema = ZLEMA(12, self.block_times)
+            ema_val = round(tema[-1], 3)
 
-                # await asyncio.sleep(random.randint(1, 3))
-                self.scheduler.remove_job(self.batched_message_job_id)
-                updated_job = self.scheduler.add_job(
-                    self.batch_message_builder,
-                    trigger="interval",
-                    seconds=self.current_block_time,
+            if ema_val < self.current_block_time:
+                self.current_block_time *= 0.9
+                self.my_logger.error(
+                    f"Congestion Control (\/): Target {self.target_block_time} AVG EMA: {ema_val} New Target: {self.current_block_time}"
                 )
-                self.batched_message_job_id = updated_job.id
+                self.job_time_change_flag = True
 
     ####################
     # AT2 Consensus    #
@@ -829,7 +827,11 @@ class Node:
         self.batched_message_job_id = job.id
 
         self.scheduler.add_job(
-            self.congestion_monitoring_job, trigger="interval", seconds=5
+            self.increasing_congestion_monitoring_job, trigger="interval", seconds=5
+        )
+
+        self.scheduler.add_job(
+            self.decreasing_congestion_monitoring_job, trigger="interval", seconds=20
         )
 
         self.scheduler.add_job(
@@ -838,4 +840,4 @@ class Node:
 
         # Start the scheduler
         self.scheduler.start()
-        self.my_logger.debug("Started Batched Message Builder job")
+        self.my_logger.debug("Started Jobs")

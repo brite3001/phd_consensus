@@ -8,6 +8,7 @@ import time
 
 from stats import plot_avg_min_max_block_time
 from stats import plot_batched_message_magnitude
+from stats import average_min_max_lists
 from iot_node.node import Node
 from iot_node.message_classes import Gossip
 from iot_node.at2_classes import AT2Configuration
@@ -69,7 +70,7 @@ async def main():
     n1 = nodes[0]
 
     start_time = time.time()
-    for i in range(200):
+    for i in range(4000):
         print(i)
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
@@ -83,7 +84,7 @@ async def main():
         n.command(gos)
 
         # print(n2.received_messages)
-        await asyncio.sleep(10)
+        await asyncio.sleep(0.1)
     end_time = time.time()
 
     await asyncio.sleep(30)
