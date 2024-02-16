@@ -70,7 +70,7 @@ async def main():
     n1 = nodes[0]
 
     start_time = time.time()
-    for i in range(4000):
+    for i in range(1000):
         print(i)
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
@@ -84,7 +84,7 @@ async def main():
         n.command(gos)
 
         # print(n2.received_messages)
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.25)
     end_time = time.time()
 
     await asyncio.sleep(30)

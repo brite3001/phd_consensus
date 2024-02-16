@@ -4,7 +4,8 @@ from fastecdsa import curve, keys, point
 from merkly.mtree import MerkleTree
 from collections import defaultdict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from talipp.indicators import ZLEMA
+from talipp.indicators import ZLEMA, EMA
+from scipy.stats import poisson
 import base64
 import asyncio
 import aiozmq
@@ -102,8 +103,10 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_block_time: int = 5
+    target_block_time: int = 10
     current_block_time: int = field(factory=int)
+    max_gossip_timeout_time = 50
+    node_selection_type = "random"
 
     # Congestion control
     scheduler = field(init=False)
@@ -475,7 +478,10 @@ class Node:
 
     async def increasing_congestion_monitoring_job(self):
         # Increase the block time if we start overshooting the target
-        if len(self.block_times) >= 15:
+        if (
+            len(self.block_times) >= 15
+            and self.current_block_time * 1.25 <= self.max_gossip_timeout_time * 0.75
+        ):
             tema = ZLEMA(6, self.block_times)
             ema_val = round(tema[-1], 3)
 
@@ -493,7 +499,7 @@ class Node:
             ema_val = round(tema[-1], 3)
 
             if ema_val < self.current_block_time:
-                self.current_block_time *= 0.9
+                self.current_block_time = round(self.current_block_time * 0.9, 3)
                 self.my_logger.error(
                     f"Congestion Control (\/): Target {self.target_block_time} AVG EMA: {ema_val} New Target: {self.current_block_time}"
                 )
@@ -508,8 +514,8 @@ class Node:
         batched_message_hash = str(hash(bm))
 
         # Step 1
-        echo_subscribe = set(
-            random.sample(list(self.peers), self.at2_config.echo_sample_size)
+        echo_subscribe = self.select_nodes(
+            self.node_selection_type, self.at2_config.echo_sample_size
         )
 
         # Step 2
@@ -528,8 +534,8 @@ class Node:
             self.command(es, peer_id)
 
         # Step 4
-        ready_subscribe = set(
-            random.sample(list(self.peers), self.at2_config.ready_sample_size)
+        ready_subscribe = self.select_nodes(
+            self.node_selection_type, self.at2_config.ready_sample_size
         )
 
         # Step 5
@@ -569,11 +575,11 @@ class Node:
             len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))
             < self.at2_config.ready_threshold
         ):
-            if retry_time_echo == 10:
+            if retry_time_echo == self.max_gossip_timeout_time:
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.25)
 
-            retry_time_echo += 0.1
+            retry_time_echo += 0.25
 
         if (
             len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))
@@ -599,7 +605,7 @@ class Node:
             len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
             < self.at2_config.delivery_threshold
         ):
-            if retry_time_ready == 10:
+            if retry_time_ready == self.max_gossip_timeout_time:
                 break
 
             await asyncio.sleep(0.1)
@@ -711,6 +717,30 @@ class Node:
     ####################
     # Helper Functions #
     ####################
+
+    def select_nodes(self, algorithm: str, num_nodes_to_select: int) -> set:
+        assert algorithm == "random" or algorithm == "poisson"
+        selected_nodes = set()
+
+        if algorithm == "poisson":
+            seed = 2929
+            rate = 5
+
+            random.seed(seed)
+            num_nodes = len(self.peers)
+            poisson_distribution = poisson(rate)
+
+            while len(selected_nodes) < num_nodes_to_select:
+                selected_indices = (
+                    poisson_distribution.rvs(size=num_nodes_to_select) % num_nodes
+                )
+                selected_nodes = set(
+                    [list(self.peers)[index] for index in selected_indices]
+                )
+        elif algorithm == "random":
+            selected_nodes = random.sample(list(self.peers), num_nodes_to_select)
+
+        return set(selected_nodes)
 
     def sign_messages_with_BLS(self, messages):
         # Messages are signed with the BLS private key
