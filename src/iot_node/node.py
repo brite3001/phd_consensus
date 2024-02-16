@@ -4,8 +4,8 @@ from fastecdsa import curve, keys, point
 from merkly.mtree import MerkleTree
 from collections import defaultdict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from talipp.indicators import ZLEMA, EMA
-from scipy.stats import poisson
+from talipp.indicators import ZLEMA
+from scipy.stats import poisson, norm
 import base64
 import asyncio
 import aiozmq
@@ -14,6 +14,7 @@ import json
 import secrets
 import random
 import time
+import math
 
 
 from .message_classes import DirectMessage
@@ -106,7 +107,8 @@ class Node:
     target_block_time: int = 10
     current_block_time: int = field(factory=int)
     max_gossip_timeout_time = 50
-    node_selection_type = "random"
+    node_selection_type = "normal"
+    random_seed = 2929
 
     # Congestion control
     scheduler = field(init=False)
@@ -718,15 +720,19 @@ class Node:
     # Helper Functions #
     ####################
 
+    def calculate_uniform_params(self):
+        num_nodes = len(self.peers)
+        mean = (num_nodes - 1) / 2
+        std_dev = math.sqrt(num_nodes)
+        return mean, std_dev
+
     def select_nodes(self, algorithm: str, num_nodes_to_select: int) -> set:
-        assert algorithm == "random" or algorithm == "poisson"
+        assert algorithm in ["normal", "random", "poisson"]
         selected_nodes = set()
 
         if algorithm == "poisson":
-            seed = 2929
             rate = 5
 
-            random.seed(seed)
             num_nodes = len(self.peers)
             poisson_distribution = poisson(rate)
 
@@ -736,6 +742,18 @@ class Node:
                 )
                 selected_nodes = set(
                     [list(self.peers)[index] for index in selected_indices]
+                )
+        elif algorithm == "normal":
+            mean, std_dev = self.calculate_uniform_params()
+            while len(selected_nodes) < num_nodes_to_select:
+                selected_indices = norm.rvs(
+                    loc=mean, scale=std_dev, size=num_nodes_to_select
+                )
+                selected_indices = [
+                    int(idx) % len(self.peers) for idx in selected_indices
+                ]
+                selected_nodes = set(
+                    [list(self.peers)[idx] for idx in selected_indices]
                 )
         elif algorithm == "random":
             selected_nodes = random.sample(list(self.peers), num_nodes_to_select)
@@ -844,6 +862,7 @@ class Node:
         self.running = True
         asyncio.create_task(self.router_listener())
         asyncio.create_task(self.subscriber_listener())
+        random.seed(self.random_seed)
 
         await asyncio.sleep(random.randint(1, 3))
 
