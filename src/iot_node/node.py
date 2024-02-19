@@ -290,61 +290,48 @@ class Node:
 
     async def subscriber_listener(self):
         self.my_logger.debug("Starting Subscriber")
-
         while True:
             if not self.running:
                 break
-
             recv = await self._subscriber.read()
-            topic = recv.pop(0)
-
-            # if len(recv) == 1:
+            # if len(recv) == 2:
             #     self.my_logger.info("Received unsigned published message")
-            # elif len(recv) == 2:
+            # elif len(recv) == 3:
             #     self.my_logger.info("Received signed published message")
-            # else:
-            #     print(f"Message is size {len(recv)}")
-            #     print(f"Range is {len(recv) / 2}")
-
-            # responses can come batched and are ordered like this:
-            # [topic, msg, sig, msg, sig, msg, sig....]
-            for _ in range(int(len(recv) / 2)):
-                message = json.loads(recv.pop(0).decode())
-                echo_sig = json.loads(recv.pop(0).decode())
-
-                if message["message_type"] == "EchoResponse":
-                    message = Response(**message)
-                    sig_check = message.verify_echo_response(echo_sig)
-                    publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
-                    self.my_logger.debug(
-                        f"Received EchoResponse for {message.topic} from {publisher}"
-                    )
-
-                    if sig_check:
-                        self.echo_replies[message.topic].add(publisher)
-                    else:
-                        self.my_logger.warning(
-                            f"Signature check for message {message.topic} from {publisher} failed!!"
-                        )
-                elif message["message_type"] == "ReadyResponse":
-                    message = Response(**message)
-                    sig_check = message.verify_echo_response(echo_sig)
-                    publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
-                    self.my_logger.debug(
-                        f"Received ReadyResponse for {message.topic} from {publisher}"
-                    )
-
-                    if sig_check:
-                        self.ready_replies[message.topic].add(publisher)
-                    else:
-                        self.my_logger.warning(
-                            f"Signature check for message {message.topic} from {publisher} failed!!"
-                        )
-
+            # topic is recv[0]
+            message = recv[1]
+            message = json.loads(message.decode())
+            if message["message_type"] == "EchoResponse":
+                message = Response(**message)
+                echo_sig = json.loads(recv[2].decode())
+                sig_check = message.verify_echo_response(echo_sig)
+                publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
+                self.my_logger.debug(
+                    f"Received EchoResponse for {message.topic} from {publisher}"
+                )
+                if sig_check:
+                    self.echo_replies[message.topic].add(publisher)
                 else:
-                    self.my_logger.warning("Couldnt find matching class for message!!")
-
-                asyncio.create_task(self.inbox(message))
+                    self.my_logger.warning(
+                        f"Signature check for message {message.topic} from {publisher} failed!!"
+                    )
+            elif message["message_type"] == "ReadyResponse":
+                message = Response(**message)
+                echo_sig = json.loads(recv[2].decode())
+                sig_check = message.verify_echo_response(echo_sig)
+                publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
+                self.my_logger.debug(
+                    f"Received ReadyResponse for {message.topic} from {publisher}"
+                )
+                if sig_check:
+                    self.ready_replies[message.topic].add(publisher)
+                else:
+                    self.my_logger.warning(
+                        f"Signature check for message {message.topic} from {publisher} failed!!"
+                    )
+            else:
+                self.my_logger.warning("Couldnt find matching class for message!!")
+            asyncio.create_task(self.inbox(message))
 
     ####################
     # Message Sending  #
@@ -403,36 +390,11 @@ class Node:
             if resp[0] == b"ALREADY_RECEIVED":
                 self.already_received[echo.batched_messages_hash].add(receiver)
 
-    async def publish_signed_echo_response_job(self):
-        if len(self.pending_responses) >= 1:
-            echo_signatures = []
-            encoded_responses = []
-            responses_to_publish = []
-
-            # message = json.dumps(asdict(er)).encode()
-            # echo_sig = json.dumps(er.sign_echo_response(self._crypto_keys)).encode()
-
-            for message in self.pending_responses:
-                echo_sig = json.dumps(
-                    message.sign_echo_response(self._crypto_keys)
-                ).encode()
-                encoded_repsonse = json.dumps(asdict(message)).encode()
-
-                echo_signatures.append(echo_sig)
-                encoded_responses.append(encoded_repsonse)
-
-            # The first message in the publication is our oldest topic
-            responses_to_publish.append(self.pending_responses[0].topic.encode())
-
-            # The responses and their accompanying signature are zipped together and added to the
-            # responses_to_publish list
-            for resp, sig in zip(encoded_responses, echo_signatures):
-                responses_to_publish.append(resp)
-                responses_to_publish.append(sig)
-
-            self._publisher.write(responses_to_publish)
-
-            self.pending_responses.clear()
+    async def publish_signed_echo_response(self, er: Response):
+        # print(f"published message {er.message_type}")
+        message = json.dumps(asdict(er)).encode()
+        echo_sig = json.dumps(er.sign_echo_response(self._crypto_keys)).encode()
+        self._publisher.write([er.topic.encode(), message, echo_sig])
 
     ######################
     # Congestion Control #
@@ -708,7 +670,7 @@ class Node:
         elif issubclass(type(command_obj), Echo):
             asyncio.create_task(self.send_signed_echo(command_obj, receiver))
         elif issubclass(type(command_obj), Response):
-            asyncio.create_task(self.ready_response_queue(command_obj))
+            asyncio.create_task(self.publish_signed_echo_response(command_obj))
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.unsigned_direct_message(command_obj, receiver))
         elif isinstance(command_obj, PublishMessage):
@@ -881,10 +843,6 @@ class Node:
 
         self.scheduler.add_job(
             self.decreasing_congestion_monitoring_job, trigger="interval", seconds=20
-        )
-
-        self.scheduler.add_job(
-            self.publish_signed_echo_response_job, trigger="interval", seconds=3
         )
 
         # Start the scheduler
