@@ -27,6 +27,7 @@ from .message_classes import Response
 from .commad_arg_classes import SubscribeToPublisher
 from .commad_arg_classes import UnsubscribeFromTopic
 from .at2_classes import AT2Configuration
+from .kalman import kalman_filter
 from logs import get_logger
 
 
@@ -443,29 +444,36 @@ class Node:
     async def increasing_congestion_monitoring_job(self):
         # Increase the block time if we start overshooting the target
         if (
-            len(self.block_times) >= 15
+            len(self.block_times) >= 25
             and self.current_block_time * 1.25 <= self.max_gossip_timeout_time * 0.75
         ):
-            tema = ZLEMA(6, self.block_times)
-            ema_val = round(tema[-1], 3)
+            filtered_zlema = kalman_filter(ZLEMA(15, self.block_times))
+            filtered_zlema = round(filtered_zlema[-1], 3)
 
-            if ema_val > self.current_block_time:
-                #
-                self.current_block_time *= 1.25
+            if filtered_zlema > self.current_block_time:
+                self.current_block_time = filtered_zlema
+                # self.current_block_time *= 1.25
                 self.my_logger.error(
-                    f"Congestion Control (/\): Target {self.target_block_time} AVG EMA: {ema_val} New Target: {self.current_block_time}"
+                    f"Congestion Control (/\): Target {self.target_block_time} AVG EMA: {filtered_zlema} New Target: {self.current_block_time}"
                 )
                 self.job_time_change_flag = True
 
     async def decreasing_congestion_monitoring_job(self):
         if len(self.block_times) >= 30:
-            tema = ZLEMA(12, self.block_times)
-            ema_val = round(tema[-1], 3)
+            filtered_zlema = kalman_filter(ZLEMA(20, self.block_times))
+            filtered_zlema = round(filtered_zlema[-1], 3)
 
-            if ema_val < self.current_block_time:
-                self.current_block_time = round(self.current_block_time * 0.9, 3)
+            if filtered_zlema < self.current_block_time:
+                self.current_block_time = filtered_zlema
+                # if ema_val <= 0.5 * self.current_block_time:
+                #     self.current_block_time = round(self.current_block_time * 0.7, 3)
+                # elif ema_val <= 0.75 * self.current_block_time:
+                #     self.current_block_time = round(self.current_block_time * 0.8, 3)
+                # else:
+                #     self.current_block_time = round(self.current_block_time * 0.9, 3)
+
                 self.my_logger.error(
-                    f"Congestion Control (\/): Target {self.target_block_time} AVG EMA: {ema_val} New Target: {self.current_block_time}"
+                    f"Congestion Control (\/): Target {self.target_block_time} AVG EMA: {filtered_zlema} New Target: {self.current_block_time}"
                 )
                 self.job_time_change_flag = True
 
@@ -838,7 +846,7 @@ class Node:
         self.batched_message_job_id = job.id
 
         self.scheduler.add_job(
-            self.increasing_congestion_monitoring_job, trigger="interval", seconds=5
+            self.increasing_congestion_monitoring_job, trigger="interval", seconds=10
         )
 
         self.scheduler.add_job(

@@ -5,7 +5,7 @@
 groups = ["default"]
 strategy = ["cross_platform"]
 lock_version = "4.4.1"
-content_hash = "sha256:145ea43d6dd9e12c8dfa187fe420a156f609549f017e3bf2c7be0d849a790695"
+content_hash = "sha256:390d6ffba5d0de04bbae63b6ae21aa30aa56bde96c73a429ba918df6b2f4cceb"
 
 [[package]]
 name = "aiozmq"
@@ -294,6 +294,19 @@ files = [
     {file = "fastecdsa-2.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:c72f8f13160798b431c8a772e4e4bce39adf6faeea80fbf75f88010d0b304aa1"},
     {file = "fastecdsa-2.3.0-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:b943a1ad3e1e306f0df422b198f544d029a70f19581e5b56a36ddfbe6302a33d"},
     {file = "fastecdsa-2.3.0.tar.gz", hash = "sha256:6c59aba650862a59f601ff7f66cd6712f4798ae68907c953d58417a5887103de"},
+]
+
+[[package]]
+name = "filterpy"
+version = "1.4.5"
+summary = "Kalman filtering and optimal estimation library"
+dependencies = [
+    "matplotlib",
+    "numpy",
+    "scipy",
+]
+files = [
+    {file = "filterpy-1.4.5.zip", hash = "sha256:4f2a4d39e4ea601b9ab42b2db08b5918a9538c168cff1c6895ae26646f3d73b1"},
 ]
 
 [[package]]
