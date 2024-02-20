@@ -59,7 +59,7 @@ def plot_avg_min_max_block_time(avg_list, min_list, max_list):
     # Add labels, title, and legend
     plt.xlabel("Message Index")
     plt.ylabel("Latency (s)")
-    plt.title("Network Latency")
+    plt.title("Message Confirmation Time")
     plt.legend()
 
     # Show the plot
@@ -101,8 +101,8 @@ def plot_batched_message_magnitude(data):
 
     # Add labels, title, and legend
     plt.xlabel("Time (seconds)")
-    plt.ylabel("Message Size")
-    plt.title("Message Size Over Time")
+    plt.ylabel("Number of batched messages per message")
+    plt.title("Batch Size Over Time")
 
     # Show the plot
     plt.show()

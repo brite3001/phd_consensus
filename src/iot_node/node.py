@@ -4,7 +4,7 @@ from fastecdsa import curve, keys, point
 from merkly.mtree import MerkleTree
 from collections import defaultdict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from talipp.indicators import ZLEMA
+from talipp.indicators import ZLEMA, RSI
 from scipy.stats import poisson, norm
 import base64
 import asyncio
@@ -105,9 +105,9 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_block_time: int = 10
-    current_block_time: int = field(factory=int)
-    max_gossip_timeout_time = 50
+    target_latency: int = 10
+    actual_latency: int = field(factory=int)
+    max_gossip_timeout_time = 60
     node_selection_type = "normal"
     random_seed = 2929
 
@@ -436,44 +436,44 @@ class Node:
             updated_job = self.scheduler.add_job(
                 self.batch_message_builder_job,
                 trigger="interval",
-                seconds=self.current_block_time,
+                seconds=self.actual_latency,
             )
             self.batched_message_job_id = updated_job.id
             self.job_time_change_flag = False
 
     async def increasing_congestion_monitoring_job(self):
         # Increase the block time if we start overshooting the target
-        if (
-            len(self.block_times) >= 25
-            and self.current_block_time * 1.25 <= self.max_gossip_timeout_time * 0.75
-        ):
-            filtered_zlema = kalman_filter(ZLEMA(15, self.block_times))
-            filtered_zlema = round(filtered_zlema[-1], 3)
+        if len(self.block_times) >= 20:
+            filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
+            rsi = int(RSI(14, filtered_zlema)[-1])
 
-            if filtered_zlema > self.current_block_time:
-                self.current_block_time = filtered_zlema
-                # self.current_block_time *= 1.25
+            increase = 1.05
+
+            dont_exceed_max_target = (
+                self.actual_latency * increase < self.max_gossip_timeout_time
+            )
+
+            if rsi > 70 and dont_exceed_max_target:
+                self.actual_latency *= increase
                 self.my_logger.error(
-                    f"Congestion Control (/\): Target {self.target_block_time} AVG EMA: {filtered_zlema} New Target: {self.current_block_time}"
+                    f"Congestion Control [{rsi}] (/\) - New Target ({increase}): {self.actual_latency}"
                 )
                 self.job_time_change_flag = True
 
-    async def decreasing_congestion_monitoring_job(self):
+    async def decrease_congestion_monitoring_job(self):
+        # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 30:
-            filtered_zlema = kalman_filter(ZLEMA(20, self.block_times))
-            filtered_zlema = round(filtered_zlema[-1], 3)
+            filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
+            rsi = int(RSI(21, filtered_zlema)[-1])
+            decrease = 0.95
 
-            if filtered_zlema < self.current_block_time:
-                self.current_block_time = filtered_zlema
-                # if ema_val <= 0.5 * self.current_block_time:
-                #     self.current_block_time = round(self.current_block_time * 0.7, 3)
-                # elif ema_val <= 0.75 * self.current_block_time:
-                #     self.current_block_time = round(self.current_block_time * 0.8, 3)
-                # else:
-                #     self.current_block_time = round(self.current_block_time * 0.9, 3)
+            dont_go_below_target = self.actual_latency * decrease >= self.target_latency
+
+            if rsi < 30 and dont_go_below_target:
+                self.actual_latency *= decrease
 
                 self.my_logger.error(
-                    f"Congestion Control (\/): Target {self.target_block_time} AVG EMA: {filtered_zlema} New Target: {self.current_block_time}"
+                    f"Congestion Control [{rsi}] (\/) - New Target ({decrease}): {self.actual_latency}"
                 )
                 self.job_time_change_flag = True
 
@@ -836,7 +836,7 @@ class Node:
 
         await asyncio.sleep(random.randint(1, 3))
 
-        self.current_block_time = self.target_block_time
+        self.actual_latency = self.target_latency
 
         # Add the job to the scheduler, which triggers every 10 seconds
         self.scheduler = AsyncIOScheduler()
@@ -846,11 +846,11 @@ class Node:
         self.batched_message_job_id = job.id
 
         self.scheduler.add_job(
-            self.increasing_congestion_monitoring_job, trigger="interval", seconds=10
+            self.increasing_congestion_monitoring_job, trigger="interval", seconds=5
         )
 
         self.scheduler.add_job(
-            self.decreasing_congestion_monitoring_job, trigger="interval", seconds=20
+            self.decrease_congestion_monitoring_job, trigger="interval", seconds=10
         )
 
         # Start the scheduler
