@@ -70,7 +70,7 @@ async def main():
     n1 = nodes[0]
 
     start_time = time.time()
-    for i in range(250):
+    for i in range(1000):
         print(i)
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)

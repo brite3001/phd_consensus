@@ -454,9 +454,9 @@ class Node:
             )
 
             if rsi > 70 and dont_exceed_max_target:
-                self.actual_latency *= increase
+                self.actual_latency = round(self.actual_latency * increase, 3)
                 self.my_logger.error(
-                    f"Congestion Control [{rsi}] (/\) - New Target ({increase}): {self.actual_latency}"
+                    f"Congestion Control [{rsi}] (/\) - New Target: {self.actual_latency}"
                 )
                 self.job_time_change_flag = True
 
@@ -470,10 +470,10 @@ class Node:
             dont_go_below_target = self.actual_latency * decrease >= self.target_latency
 
             if rsi < 30 and dont_go_below_target:
-                self.actual_latency *= decrease
+                self.actual_latency = round(self.actual_latency * decrease, 3)
 
                 self.my_logger.error(
-                    f"Congestion Control [{rsi}] (\/) - New Target ({decrease}): {self.actual_latency}"
+                    f"Congestion Control [{rsi}] (\/) - New Target: {self.actual_latency}"
                 )
                 self.job_time_change_flag = True
 
