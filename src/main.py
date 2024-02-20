@@ -83,7 +83,7 @@ async def main():
         n.command(gos)
         n.command(gos)
 
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(2)
     end_time = time.time()
 
     await asyncio.sleep(30)
