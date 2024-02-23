@@ -178,9 +178,11 @@ class BatchedMessages:
 
         sig_check = ecdsa.verify(
             signature,
-            self.get_creator_bytes()
-            if signature_to_check == "creator"
-            else self.get_sender_bytes(),
+            (
+                self.get_creator_bytes()
+                if signature_to_check == "creator"
+                else self.get_sender_bytes()
+            ),
             ecdsa_tuple_to_point(self.sender_ecdsa),
         )
 

@@ -121,7 +121,6 @@ class Node:
 
     # SBRB Specific Variables #
     received_messages: dict[str, BatchedMessages] = field(factory=dict)
-    received_messages_by_index: dict[int, str] = field(factory=dict)  # str is msg hash
     message_index: int = field(factory=int)
     already_received: defaultdict[str, set] = defaultdict(set)
 
@@ -146,15 +145,6 @@ class Node:
             self.received_gossips += 1
             bm_hash = str(hash(message))
             self.received_messages[bm_hash] = message
-
-            if (
-                message.index in self.received_messages_by_index
-                and self.received_messages_by_index[message.index]
-            ):
-                if str(hash(message)) != self.received_messages_by_index[message.index]:
-                    print("Two different messages with same index detected!!")
-            else:
-                self.received_messages_by_index[message.index]
 
             es = Response(
                 "EchoResponse",
@@ -430,7 +420,7 @@ class Node:
                 messages=tuple(self.pending_gossips),
                 # aggregated_bls_signature=self.sign_messages_with_BLS(messages),
                 aggregated_bls_signature="111",
-                merkle_root=mtree.root,
+                merkle_root=mtree.root.hex(),
                 index=self.message_index,
             )
 
