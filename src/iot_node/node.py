@@ -153,7 +153,6 @@ class Node:
                 self.received_messages[bm_hash] = message
                 self.vector_clock[bm_creator] += 1
 
-                print(f"Inbox of {self.id} has received message {bm_hash}")
                 es = Response(
                     "EchoResponse",
                     str(bm_hash),
@@ -254,9 +253,6 @@ class Node:
                         self.my_logger.info(
                             f"Received BatchedMessage {bm_hash} from: {sender_id} created by {creator_id}"
                         )
-
-                        if creator_id == self.id:
-                            print(f"I received my own message {creator_id}")
 
                         asyncio.create_task(self.inbox(bm))
                     else:
@@ -403,7 +399,6 @@ class Node:
                 self.already_received[echo.batched_messages_hash].add(receiver)
 
     async def publish_signed_echo_response(self, er: Response):
-        # print(f"published message {er.message_type}")
         message = json.dumps(asdict(er)).encode()
         echo_sig = json.dumps(er.sign_echo_response(self._crypto_keys)).encode()
         self._publisher.write([er.topic.encode(), message, echo_sig])
@@ -459,13 +454,18 @@ class Node:
             filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
             rsi = int(RSI(14, filtered_zlema)[-1])
 
-            increase = 1.05
+            increase = random.uniform(1.01, 1.1)
 
             dont_exceed_max_target = (
                 self.actual_latency * increase < self.max_gossip_timeout_time
             )
 
-            if rsi > 70 and dont_exceed_max_target:
+            # Stops actual_latency increase when network has low latency.
+            is_latency_above_target = (
+                False if max(self.block_times[:20]) < self.target_latency else True
+            )
+
+            if rsi > 70 and dont_exceed_max_target and is_latency_above_target:
                 self.actual_latency = round(self.actual_latency * increase, 3)
                 self.my_logger.error(
                     f"Congestion Control [{rsi}] (/\) - New Target: {self.actual_latency}"
@@ -477,7 +477,7 @@ class Node:
         if len(self.block_times) >= 30:
             filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
             rsi = int(RSI(21, filtered_zlema)[-1])
-            decrease = 0.95
+            decrease = random.uniform(0.9, 0.99)
 
             dont_go_below_target = self.actual_latency * decrease >= self.target_latency
 
@@ -545,8 +545,6 @@ class Node:
         # Step 7
         self.message_index += 1
         if i_am_message_creator:
-            print(f"{self.id} created this batch")
-            print(batched_message_hash)
             self.vector_clock[self.id] += 1
 
         # step 8

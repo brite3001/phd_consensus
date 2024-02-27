@@ -70,7 +70,7 @@ async def main():
     n1 = nodes[0]
 
     start_time = time.time()
-    for i in range(5):
+    for i in range(2500):
         print(i)
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
@@ -83,33 +83,28 @@ async def main():
         n.command(gos)
         n.command(gos)
 
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.25)
     end_time = time.time()
 
-    await asyncio.sleep(5)
+    await asyncio.sleep(45)
 
+    print(f"Time taken: {round(end_time - start_time, 3)}s")
     for n in nodes:
-        print(n.vector_clock)
-        print(n.received_messages.keys())
-        print("-----------------")
+        n.statistics()
+        print("---------------------------")
 
-    # print(f"Time taken: {round(end_time - start_time, 3)}s")
-    # for n in nodes:
-    #     n.statistics()
-    #     print("---------------------------")
+    received_msg_metadata = []
+    sent_msg_metadata = []
+    node_ids = []
 
-    # received_msg_metadata = []
-    # sent_msg_metadata = []
-    # node_ids = []
+    for node in nodes:
+        received_msg_metadata.append(node.block_times)
+        sent_msg_metadata.append(node.sent_msg_metadata)
+        node_ids.append(node.id)
 
-    # for node in nodes:
-    #     received_msg_metadata.append(node.block_times)
-    #     sent_msg_metadata.append(node.sent_msg_metadata)
-    #     node_ids.append(node.id)
-
-    # avg_list, min_list, max_list = average_min_max_lists(received_msg_metadata)
-    # plot_batched_message_magnitude(sent_msg_metadata)
-    # plot_avg_min_max_block_time(avg_list, min_list, max_list)
+    avg_list, min_list, max_list = average_min_max_lists(received_msg_metadata)
+    plot_batched_message_magnitude(sent_msg_metadata)
+    plot_avg_min_max_block_time(avg_list, min_list, max_list)
 
 
 async def shutdown(signal, loop):
