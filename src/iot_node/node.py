@@ -99,7 +99,7 @@ class Node:
     _router: aiozmq.stream.ZmqStream = field(init=False)
     connected_subscribers: set = field(factory=set)  # stores peer_ids
     subscribed_topics: set = field(factory=set)  # stores topics as bytes
-    rep_lock = asyncio.Lock()
+    rep_lock = field(factory=lambda: asyncio.Lock())
 
     _crypto_keys: CryptoKeys = field(init=False)
     running: bool = field(factory=bool)
@@ -122,11 +122,15 @@ class Node:
     # SBRB Specific Variables #
     received_messages: dict[str, BatchedMessages] = field(factory=dict)
     message_index: int = field(factory=int)
-    already_received: defaultdict[str, set] = defaultdict(set)
+    already_received: defaultdict[str, set] = field(factory=lambda: defaultdict(set))
 
     # str == msg_hash, set() of peer_ids
-    echo_replies: defaultdict[str, set] = defaultdict(set)
-    ready_replies: defaultdict[str, set] = defaultdict(set)
+    echo_replies: defaultdict[str, set] = field(factory=lambda: defaultdict(set))
+    ready_replies: defaultdict[str, set] = field(factory=lambda: defaultdict(set))
+
+    # Sequencing
+    # str == node_id
+    vector_clock: defaultdict[str, int] = field(factory=lambda: defaultdict(int))
 
     # Statistics
     sent_gossips: int = field(factory=int)
@@ -144,18 +148,22 @@ class Node:
         if isinstance(message, BatchedMessages):
             self.received_gossips += 1
             bm_hash = str(hash(message))
-            self.received_messages[bm_hash] = message
+            if bm_hash not in self.received_messages:
+                bm_creator = self._crypto_keys.ecdsa_tuple_to_id(message.creator_ecdsa)
+                self.received_messages[bm_hash] = message
+                self.vector_clock[bm_creator] += 1
 
-            es = Response(
-                "EchoResponse",
-                str(bm_hash),
-                self._crypto_keys.ecdsa_public_key_tuple,
-            )
-            self.command(es)
+                print(f"Inbox of {self.id} has received message {bm_hash}")
+                es = Response(
+                    "EchoResponse",
+                    str(bm_hash),
+                    self._crypto_keys.ecdsa_public_key_tuple,
+                )
+                self.command(es)
 
-            bm = message.become_sender(self._crypto_keys)
-            # regossip the message from the original creator, now with you as sender
-            asyncio.create_task(self.gossip(bm))
+                bm = message.become_sender(self._crypto_keys)
+                # regossip the message from the original creator, now with you as sender
+                asyncio.create_task(self.gossip(bm))
 
         elif isinstance(message, Echo):
             if message.message_type == "EchoSubscribe":
@@ -221,7 +229,7 @@ class Node:
             if msg["message_type"] == "DirectMessage":
                 dm = DirectMessage(**msg)
                 asyncio.create_task(self.inbox(dm))
-            elif msg["message_type"] == "BatchedMessage":
+            if msg["message_type"] == "BatchedMessage":
                 msg["messages"] = tuple([Gossip(**x) for x in msg["messages"]])
                 bm = BatchedMessages(**msg)
                 bm_hash = str(hash(bm))
@@ -246,6 +254,9 @@ class Node:
                         self.my_logger.info(
                             f"Received BatchedMessage {bm_hash} from: {sender_id} created by {creator_id}"
                         )
+
+                        if creator_id == self.id:
+                            print(f"I received my own message {creator_id}")
 
                         asyncio.create_task(self.inbox(bm))
                     else:
@@ -485,6 +496,11 @@ class Node:
     # AT2 starts here
     async def gossip(self, bm: BatchedMessages):
         batched_message_hash = str(hash(bm))
+        i_am_message_creator = (
+            True
+            if self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa) == self.id
+            else False
+        )
 
         # Step 1
         echo_subscribe = self.select_nodes(
@@ -528,6 +544,10 @@ class Node:
 
         # Step 7
         self.message_index += 1
+        if i_am_message_creator:
+            print(f"{self.id} created this batch")
+            print(batched_message_hash)
+            self.vector_clock[self.id] += 1
 
         # step 8
         if (

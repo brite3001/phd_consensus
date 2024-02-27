@@ -1,26 +1,30 @@
-from py3crdt.gset import GSet
-import json
+from py3crdt.sequence import Sequence
+import uuid
+from datetime import datetime
 
-gset1 = GSet(id=1)
-gset2 = GSet(id=2)
-gset1.add(json.dumps({"data": 123425346}))
-gset1.add(json.dumps({"data": 234525}))
-gset1.add(json.dumps({"data": 124234}))
-gset1.add(json.dumps({"data": 33}))
-gset1.add(json.dumps({"data": 4654564644}))
-gset1.display()
-# ['a', 'b']   ----- Output
-gset2.add(json.dumps({"data": 55}))
-gset2.add(json.dumps({"data": 4654564644}))
-gset2.add(json.dumps({"data": 123425346}))
-gset2.add(json.dumps({"data": 234525}))
-gset2.add(json.dumps({"data": 22}))
-gset2.add(json.dumps({"data": 124234}))
-gset2.display()
-# ['b', 'c']   ----- Output
-gset1.merge(gset2)
-gset1.display()
-# ['a', 'b', 'c']   ----- Output
-gset2.merge(gset1)
-gset2.display()
-# ['a', 'b', 'c']   ----- Output
+# Create a Sequence
+seq1 = Sequence(uuid.uuid4())
+
+# Create another Sequence
+seq2 = Sequence(uuid.uuid4())
+
+# Create another Sequence
+seq3 = Sequence(uuid.uuid4())
+
+# Add elements to seq1
+id1a = [1, 0, 0]
+seq1.add("z", id1a)
+id1b = [2, 0, 0]
+seq1.add("a", id1b)
+
+# Add elements to seq2
+id2c = [0, 1, 0]
+seq2.add("aa", id2c)
+id2b = [1, 2, 0]
+seq2.add("aa", id2b)
+id2d = [2, 2, 0]
+seq2.add("aa", id2d)
+
+seq1.display()
+print("------")
+seq2.display()
