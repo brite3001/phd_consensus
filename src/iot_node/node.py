@@ -136,7 +136,6 @@ class Node:
         factory=lambda: Sequence("messages")
     )
     to_be_sequenced: list[BatchedMessages] = field(factory=list)
-    random_for_ranking = field(factory=lambda: random.Random())
 
     # Statistics
     sent_gossips: int = field(factory=int)
@@ -521,8 +520,11 @@ class Node:
         # Shared random number derived from blockchain data
         crdt_random = self.get_rng_from_crdt()
 
+        # Create a new instance of the random number generator for each session
+        random_generator = random.Random()
+
         # Set the seed for the random number generator
-        self.random_for_ranking.seed(crdt_random)
+        random_generator.seed(crdt_random)
 
         # Assign random values to each element using the seeded random number generator
         sorted_peers = list(self.peers)
@@ -530,7 +532,7 @@ class Node:
         sorted_peers.sort()
 
         random_values = [
-            (self.random_for_ranking.random(), node_id) for node_id in sorted_peers
+            (random_generator.random(), node_id) for node_id in sorted_peers
         ]
 
         # Sort by random values
@@ -539,6 +541,7 @@ class Node:
         # Extract the original elements in their new random order
         random_ranking = [node_id for _, node_id in random_values]
 
+        print(random_ranking)
         return random_ranking
 
     ####################
