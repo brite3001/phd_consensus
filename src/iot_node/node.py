@@ -517,6 +517,7 @@ class Node:
         return hash(crdt_as_tuple)
 
     async def rank_nodes(self):
+        # https://en.wikipedia.org/wiki/Schwartzian_transform
         # Shared random number derived from blockchain data
         crdt_random = self.get_rng_from_crdt()
 
