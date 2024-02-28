@@ -121,7 +121,6 @@ class Node:
 
     # SBRB Specific Variables #
     received_messages: dict[str, BatchedMessages] = field(factory=dict)
-    message_index: int = field(factory=int)
     already_received: defaultdict[str, set] = field(factory=lambda: defaultdict(set))
 
     # str == msg_hash, set() of peer_ids
@@ -131,6 +130,7 @@ class Node:
     # Sequencing
     # str == node_id
     vector_clock: defaultdict[str, int] = field(factory=lambda: defaultdict(int))
+    to_be_sequenced: list[BatchedMessages] = field(factory=list)
 
     # Statistics
     sent_gossips: int = field(factory=int)
@@ -427,7 +427,6 @@ class Node:
                 # aggregated_bls_signature=self.sign_messages_with_BLS(messages),
                 aggregated_bls_signature="111",
                 merkle_root=mtree.root.hex(),
-                index=self.message_index,
             )
 
             asyncio.create_task(self.gossip(bm))
@@ -543,7 +542,6 @@ class Node:
             self.command(rs, peer_id)
 
         # Step 7
-        self.message_index += 1
         if i_am_message_creator:
             self.vector_clock[self.id] += 1
 
@@ -608,6 +606,7 @@ class Node:
             >= self.at2_config.delivery_threshold
         ):
             self.delivered_gossips += 1
+            self.to_be_sequenced.append(bm)
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
         else:
             self.my_logger.warning(
