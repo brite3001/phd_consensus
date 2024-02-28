@@ -6,6 +6,7 @@ from collections import defaultdict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from talipp.indicators import ZLEMA, RSI
 from scipy.stats import poisson, norm
+from py3crdt.sequence import Sequence
 import base64
 import asyncio
 import aiozmq
@@ -130,7 +131,12 @@ class Node:
     # Sequencing
     # str == node_id
     vector_clock: defaultdict[str, int] = field(factory=lambda: defaultdict(int))
+    call_committee_meeting_every_n_messages = 10
+    sequenced_messages: defaultdict[str, int] = field(
+        factory=lambda: Sequence("messages")
+    )
     to_be_sequenced: list[BatchedMessages] = field(factory=list)
+    random_for_ranking = field(factory=lambda: random.Random())
 
     # Statistics
     sent_gossips: int = field(factory=int)
@@ -152,6 +158,13 @@ class Node:
                 bm_creator = self._crypto_keys.ecdsa_tuple_to_id(message.creator_ecdsa)
                 self.received_messages[bm_hash] = message
                 self.vector_clock[bm_creator] += 1
+
+                if (
+                    sum(list(self.vector_clock.values()))
+                    % self.call_committee_meeting_every_n_messages
+                    == 0
+                ):
+                    await self.rank_nodes()
 
                 es = Response(
                     "EchoResponse",
@@ -476,6 +489,7 @@ class Node:
         if len(self.block_times) >= 30:
             filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
             rsi = int(RSI(21, filtered_zlema)[-1])
+
             decrease = random.uniform(0.9, 0.99)
 
             dont_go_below_target = self.actual_latency * decrease >= self.target_latency
@@ -487,6 +501,44 @@ class Node:
                     f"Congestion Control [{rsi}] (\/) - New Target: {self.actual_latency}"
                 )
                 self.job_time_change_flag = True
+
+    ####################
+    # Sequencing       #
+    ####################
+
+    def get_rng_from_crdt(self):
+        crdt_as_tuple = []
+
+        for tx in self.sequenced_messages.elem_list:
+            crdt_as_tuple.append((tx[0], sum(tx[1])))
+
+        crdt_as_tuple = tuple(crdt_as_tuple) if len(crdt_as_tuple) > 0 else (0)
+
+        return hash(crdt_as_tuple)
+
+    async def rank_nodes(self):
+        # Shared random number derived from blockchain data
+        crdt_random = self.get_rng_from_crdt()
+
+        # Set the seed for the random number generator
+        self.random_for_ranking.seed(crdt_random)
+
+        # Assign random values to each element using the seeded random number generator
+        sorted_peers = list(self.peers)
+        sorted_peers.append(self.id)
+        sorted_peers.sort()
+
+        random_values = [
+            (self.random_for_ranking.random(), node_id) for node_id in sorted_peers
+        ]
+
+        # Sort by random values
+        random_values.sort()
+
+        # Extract the original elements in their new random order
+        random_ranking = [node_id for _, node_id in random_values]
+
+        return random_ranking
 
     ####################
     # AT2 Consensus    #
@@ -544,6 +596,13 @@ class Node:
         # Step 7
         if i_am_message_creator:
             self.vector_clock[self.id] += 1
+
+            if (
+                sum(list(self.vector_clock.values()))
+                % self.call_committee_meeting_every_n_messages
+                == 0
+            ):
+                await self.rank_nodes()
 
         # step 8
         if (

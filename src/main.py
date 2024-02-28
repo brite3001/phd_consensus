@@ -88,11 +88,6 @@ async def main():
 
     await asyncio.sleep(10)
 
-    for n in nodes:
-        print(n.id)
-        print(n.to_be_sequenced)
-        print("--------------")
-
     # print(f"Time taken: {round(end_time - start_time, 3)}s")
     # for n in nodes:
     #     n.statistics()
