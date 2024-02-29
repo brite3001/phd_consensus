@@ -124,6 +124,7 @@ class BatchedMessages:
     )  # bytes encoded as base64
 
     merkle_root: str = field(validator=[validators.instance_of(str)])
+    vector_clock: tuple = field(converter=tuple)
 
     def __hash__(self):
         return hash(self.get_creator_bytes())
@@ -136,6 +137,7 @@ class BatchedMessages:
             + str(self.creator_ecdsa[1])
             + self.aggregated_bls_signature
             + self.merkle_root
+            + str(sum(value for key, value in self.vector_clock))
         )
 
         return creator_bytes.encode()
@@ -150,6 +152,7 @@ class BatchedMessages:
             + str(self.sender_ecdsa[1])
             + self.aggregated_bls_signature
             + self.merkle_root
+            + str(sum(value for key, value in self.vector_clock))
         )
 
         return sender_bytes.encode()
@@ -205,4 +208,5 @@ class BatchedMessages:
             messages=self.messages,
             aggregated_bls_signature=self.aggregated_bls_signature,
             merkle_root=self.merkle_root,
+            vector_clock=self.vector_clock,
         )

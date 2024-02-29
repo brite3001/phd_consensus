@@ -22,25 +22,33 @@ id1a = [1, 0, 0]
 seq2.add("z", id1a)
 id1b = [2, 0, 0]
 seq2.add("a", id1b)
+id1b = [3, 0, 0]
+seq2.add("g", id1b)
 
 
 seq1.display()
 print("------")
 seq2.display()
 
-print(hash(seq1))
-print(hash(seq2))
+seq1.merge(seq2)
 
-rawr1 = []
-rawr2 = []
-for tx in seq1.elem_list:
-    rawr1.append((tx[0], sum(tx[1])))
+seq1.display()
 
-for tx in seq2.elem_list:
-    rawr2.append((tx[0], sum(tx[1])))
+print(seq1.query("z"))
 
-rawr1 = tuple(rawr1)
-print(hash(rawr1))
+# print(hash(seq1))
+# print(hash(seq2))
+
+# rawr1 = []
+# rawr2 = []
+# for tx in seq1.elem_list:
+#     rawr1.append((tx[0], sum(tx[1])))
+
+# for tx in seq2.elem_list:
+#     rawr2.append((tx[0], sum(tx[1])))
+
+# rawr1 = tuple(rawr1)
+# print(hash(rawr1))
 
 # Convert sets to frozensets before hashing
 # frozen_rawr1 = frozenset(rawr1)

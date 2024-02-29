@@ -135,7 +135,7 @@ class Node:
     sequenced_messages: defaultdict[str, int] = field(
         factory=lambda: Sequence("messages")
     )
-    to_be_sequenced: list[BatchedMessages] = field(factory=list)
+    to_be_sequenced: set[BatchedMessages] = field(factory=set)
 
     # Statistics
     sent_gossips: int = field(factory=int)
@@ -439,6 +439,7 @@ class Node:
                 # aggregated_bls_signature=self.sign_messages_with_BLS(messages),
                 aggregated_bls_signature="111",
                 merkle_root=mtree.root.hex(),
+                vector_clock=self.vector_clock.items(),
             )
 
             asyncio.create_task(self.gossip(bm))
@@ -539,10 +540,27 @@ class Node:
         random_values.sort()
 
         # Extract the original elements in their new random order
-        random_ranking = [node_id for _, node_id in random_values]
+        random_ranking = tuple([node_id for _, node_id in random_values])
 
-        print(random_ranking)
-        return random_ranking
+        if self.id == random_ranking[0]:
+            await self.sequencing_pending_transactions(random_ranking)
+
+    async def sequencing_committee_backup(self, ranking: tuple):
+        # 1) Send a SequenceProposal to the #1 ranked node
+        # 2)
+        pass
+
+    async def sequencing_pending_transactions(self, ranking: tuple):
+        # Rules
+        # No duplicate transactions
+        # Make sure transaction vector_clock >= the cutoff for a round
+        #
+        for bm in self.to_be_sequenced:
+            print(self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa))
+            print(hash(bm))
+            print(bm.vector_clock)
+            print(sum(value for key, value in bm.vector_clock))
+            print("--------")
 
     ####################
     # AT2 Consensus    #
@@ -669,7 +687,7 @@ class Node:
             >= self.at2_config.delivery_threshold
         ):
             self.delivered_gossips += 1
-            self.to_be_sequenced.append(bm)
+            self.to_be_sequenced.add(bm)
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
         else:
             self.my_logger.warning(
