@@ -37,7 +37,7 @@ class SequenceProposal:
         sig_check = ecdsa.verify(
             signature,
             (self.get_creator_bytes()),
-            ecdsa_tuple_to_point(self.sender_ecdsa),
+            ecdsa_tuple_to_point(self.creator_ecdsa),
         )
 
         return sig_check

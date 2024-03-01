@@ -140,6 +140,7 @@ class Node:
         factory=lambda: Sequence("messages")
     )
     to_be_sequenced: set[BatchedMessages] = field(factory=set)
+    sequencer_ranking_history: dict = field(factory=dict)
 
     # Statistics
     sent_gossips: int = field(factory=int)
@@ -322,6 +323,47 @@ class Node:
                 else:
                     self.my_logger.warning(
                         f"Signature verification on {echo_type} from {creator_id} failed {es}"
+                    )
+            elif msg["message_type"] == "SequenceProposal":
+                creator_signature = json.loads(recv[4].decode())
+                sp = SequenceProposal(**msg)
+                creator_id = self._crypto_keys.ecdsa_tuple_to_id(sp.creator_ecdsa)
+                msg_sig_check = sp.verify_message(creator_signature)
+
+                if msg_sig_check:
+                    # only expecting proposals from the top self.committee nodes in the rankings
+                    expected_proposers = []
+
+                    retry = 0
+                    while sp.sequence_round not in self.sequencer_ranking_history:
+                        if retry == 10:
+                            break
+                        await asyncio.sleep(0.5)
+                        retry += 1
+
+                    if sp.sequence_round in self.sequencer_ranking_history:
+                        for i in range(self.committee_size):
+                            expected_proposers.append(
+                                self.sequencer_ranking_history[sp.sequence_round][i]
+                            )
+
+                        if self.id in expected_proposers:
+                            expected_proposers.remove(self.id)
+
+                        if (
+                            self._crypto_keys.ecdsa_tuple_to_id(sp.creator_ecdsa)
+                            in expected_proposers
+                        ):
+                            print(f"Got proposal from expected proposer {sp}")
+                        else:
+                            print(f"Got proposal from unexpected node!! {sp}")
+                    else:
+                        self.my_logger.warning(
+                            f"Ranking didnt happen in time to process SequenceProposal for round {sp.sequence_round}"
+                        )
+                else:
+                    self.my_logger.warning(
+                        f"Signature verification on SequencerProposal from {creator_id} failed {sp}"
                     )
 
             else:
@@ -564,6 +606,8 @@ class Node:
 
         # Extract the original elements in their new random order
         random_ranking = tuple([node_id for _, node_id in random_values])
+
+        self.sequencer_ranking_history[round_num] = random_ranking
 
         if self.id == random_ranking[0]:
             # await self.sequencing_pending_transactions(random_ranking, round_num)
