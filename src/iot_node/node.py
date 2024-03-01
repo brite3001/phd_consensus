@@ -141,6 +141,7 @@ class Node:
     )
     to_be_sequenced: set[BatchedMessages] = field(factory=set)
     sequencer_ranking_history: dict = field(factory=dict)
+    proposals_from_our_peers: dict = field(factory=dict)
 
     # Statistics
     sent_gossips: int = field(factory=int)
@@ -334,6 +335,8 @@ class Node:
                     # only expecting proposals from the top self.committee nodes in the rankings
                     expected_proposers = []
 
+                    # Theres a chance we haven't done the ranking yet due to network latency
+                    # Wait a bit if that's the case
                     retry = 0
                     while sp.sequence_round not in self.sequencer_ranking_history:
                         if retry == 10:
@@ -341,6 +344,7 @@ class Node:
                         await asyncio.sleep(0.5)
                         retry += 1
 
+                    # Grab the top nodes from the ranking, add them to expected_proposers
                     if sp.sequence_round in self.sequencer_ranking_history:
                         for i in range(self.committee_size):
                             expected_proposers.append(
@@ -350,13 +354,25 @@ class Node:
                         if self.id in expected_proposers:
                             expected_proposers.remove(self.id)
 
+                        # If we get a proposal from an expected proposer
                         if (
                             self._crypto_keys.ecdsa_tuple_to_id(sp.creator_ecdsa)
                             in expected_proposers
                         ):
-                            print(f"Got proposal from expected proposer {sp}")
+                            # If this is the #1 ranked proposer, we need to send an AcceptProposal
+                            # or RejectProposal message
+                            if creator_id == expected_proposers[0]:
+                                print("Got a message from #1")
+                            else:
+                                # If it's any other expected proposer, we store their proposed message hashes
+                                print("Got a message from Non #1 - Saved")
+                                self.proposals_from_our_peers[sp.sequence_round] = sp
+
                         else:
-                            print(f"Got proposal from unexpected node!! {sp}")
+                            self.my_logger.warning(
+                                f"Got proposal from node that didnt rank high enough {creator_id} {sp}"
+                            )
+
                     else:
                         self.my_logger.warning(
                             f"Ranking didnt happen in time to process SequenceProposal for round {sp.sequence_round}"
