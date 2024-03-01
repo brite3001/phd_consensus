@@ -2,7 +2,6 @@ from attrs import frozen, field, validators, asdict, define
 from py_ecc.bls import G2ProofOfPossession as bls_pop
 from fastecdsa import ecdsa, point
 from typing import Union, Tuple
-from time import time
 import json
 import base64
 
@@ -64,12 +63,12 @@ class Echo(DirectMessage):
 
         return message_bytes.encode()
 
-    def sign_echo(self, keys):
+    def sign_message(self, keys):
         # The sender part is signed with the ECDSA private key
 
         return ecdsa.sign(self.get_echo_bytes(), keys.ecdsa_private_key)
 
-    def verify_echo(self, signature: tuple):
+    def verify_message(self, signature: tuple):
         creator_sig_check = ecdsa.verify(
             signature,
             self.get_echo_bytes(),
