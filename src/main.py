@@ -90,6 +90,7 @@ async def main():
 
     for n in nodes:
         print(n.sequenced_messages)
+        print(hash(tuple(n.sequenced_messages)))
 
     # print(f"Time taken: {round(end_time - start_time, 3)}s")
     # for n in nodes:

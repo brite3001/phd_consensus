@@ -17,8 +17,6 @@ import random
 import time
 import math
 
-
-from .sequencing_messages import SequenceUpdate
 from .message_classes import DirectMessage
 from .message_classes import PublishMessage
 from .message_classes import BatchedMessages
@@ -635,7 +633,7 @@ class Node:
             vector_clock_without_node_id = [value for key, value in bm.vector_clock]
 
             self.sequenced_messages.append(
-                (vector_clock_without_node_id, batched_message_hash)
+                (tuple(vector_clock_without_node_id), batched_message_hash)
             )
             self.sequenced_messages.sort()
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
