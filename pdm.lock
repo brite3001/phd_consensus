@@ -5,7 +5,7 @@
 groups = ["default"]
 strategy = ["cross_platform"]
 lock_version = "4.4.1"
-content_hash = "sha256:cebd3fa45e498ab2cf79f9c835755ef9ca08f4b57f65cd1d996d277c98e4975d"
+content_hash = "sha256:390d6ffba5d0de04bbae63b6ae21aa30aa56bde96c73a429ba918df6b2f4cceb"
 
 [[package]]
 name = "aiozmq"
@@ -731,15 +731,6 @@ summary = "A python library adding a json log formatter"
 files = [
     {file = "python-json-logger-2.0.7.tar.gz", hash = "sha256:23e7ec02d34237c5aa1e29a070193a4ea87583bb4e7f8fd06d3de8264c4b2e1c"},
     {file = "python_json_logger-2.0.7-py3-none-any.whl", hash = "sha256:f380b826a991ebbe3de4d897aeec42760035ac760345e57b812938dc8b35e2bd"},
-]
-
-[[package]]
-name = "python3-crdt"
-version = "1.0.3"
-summary = "A python library for CRDTs (Conflict-free Replicated Data types)"
-files = [
-    {file = "python3-crdt-1.0.3.tar.gz", hash = "sha256:41ba08e163de5d99783e97896aadb64bb4e6e1c6c3599474195154380cf02d2a"},
-    {file = "python3_crdt-1.0.3-py3-none-any.whl", hash = "sha256:940ed69583ce3b8a2cd0f69c780c796856812f5056a298c116958587e75831e2"},
 ]
 
 [[package]]

@@ -83,10 +83,13 @@ async def main():
         n.command(gos)
         n.command(gos)
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.25)
     end_time = time.time()
 
-    await asyncio.sleep(0.26)
+    await asyncio.sleep(30)
+
+    for n in nodes:
+        print(n.sequenced_messages)
 
     # print(f"Time taken: {round(end_time - start_time, 3)}s")
     # for n in nodes:

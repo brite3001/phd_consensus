@@ -92,7 +92,7 @@ class Response(PublishMessage):
 
         return message_bytes.encode()
 
-    def sign_echo_response(self, keys):
+    def sign(self, keys):
         # The sender part is signed with the ECDSA private key
 
         return ecdsa.sign(self.get_echo_bytes(), keys.ecdsa_private_key)

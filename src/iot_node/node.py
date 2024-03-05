@@ -6,7 +6,6 @@ from collections import defaultdict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from talipp.indicators import ZLEMA, RSI
 from scipy.stats import poisson, norm
-from py3crdt.sequence import Sequence
 from typing import Union
 import base64
 import asyncio
@@ -19,7 +18,7 @@ import time
 import math
 
 
-from .sequencing_messages import SequenceProposal
+from .sequencing_messages import SequenceUpdate
 from .message_classes import DirectMessage
 from .message_classes import PublishMessage
 from .message_classes import BatchedMessages
@@ -133,15 +132,7 @@ class Node:
     # Sequencing
     # str == node_id
     vector_clock: defaultdict[str, int] = field(factory=lambda: defaultdict(int))
-    vector_clock_lag = 10
-    call_committee_meeting_every_n_messages = 10
-    committee_size = 3
-    sequenced_messages: defaultdict[str, int] = field(
-        factory=lambda: Sequence("messages")
-    )
-    to_be_sequenced: set[BatchedMessages] = field(factory=set)
-    sequencer_ranking_history: dict = field(factory=dict)
-    proposals_from_our_peers: dict = field(factory=dict)
+    sequenced_messages: list[tuple] = field(factory=list)
 
     # Statistics
     sent_gossips: int = field(factory=int)
@@ -164,12 +155,12 @@ class Node:
                 self.received_messages[bm_hash] = message
                 self.vector_clock[bm_creator] += 1
 
-                vc_int = sum(list(self.vector_clock.values()))
-                if vc_int % self.call_committee_meeting_every_n_messages == 0:
-                    round_num = int(
-                        vc_int / self.call_committee_meeting_every_n_messages
-                    )
-                    await self.rank_nodes(round_num)
+                # vc_int = sum(list(self.vector_clock.values()))
+                # if vc_int % self.call_committee_meeting_every_n_messages == 0:
+                #     round_num = int(
+                #         vc_int / self.call_committee_meeting_every_n_messages
+                #     )
+                #     await self.rank_nodes(round_num)
 
                 es = Response(
                     "EchoResponse",
@@ -264,27 +255,22 @@ class Node:
                     # agg_msg_sig_check = bm.verify_aggregated_bls_signature()
                     agg_msg_sig_check = True
 
-                    bm_vector_clock_int = sum(value for key, value in bm.vector_clock)
-                    our_vector_clock_int = sum(
-                        value for key, value in self.vector_clock.items()
-                    )
+                    # bm_vector_clock_int = sum(value for key, value in bm.vector_clock)
+                    # our_vector_clock_int = sum(
+                    #     value for key, value in self.vector_clock.items()
+                    # )
 
-                    acceptable_lag = (
-                        True
-                        if bm_vector_clock_int
-                        >= our_vector_clock_int - self.vector_clock_lag
-                        else False
-                    )
+                    # acceptable_lag = (
+                    #     True
+                    #     if bm_vector_clock_int
+                    #     >= our_vector_clock_int - self.vector_clock_lag
+                    #     else False
+                    # )
 
                     creator_id = self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa)
                     sender_id = self._crypto_keys.ecdsa_tuple_to_id(bm.sender_ecdsa)
 
-                    if (
-                        creator_sig_check
-                        and sender_sig_check
-                        and agg_msg_sig_check
-                        and acceptable_lag
-                    ):
+                    if creator_sig_check and sender_sig_check and agg_msg_sig_check:
                         self.my_logger.info(
                             f"Received BatchedMessage {bm_hash} from: {sender_id} created by {creator_id}"
                         )
@@ -325,63 +311,6 @@ class Node:
                     self.my_logger.warning(
                         f"Signature verification on {echo_type} from {creator_id} failed {es}"
                     )
-            elif msg["message_type"] == "SequenceProposal":
-                creator_signature = json.loads(recv[4].decode())
-                sp = SequenceProposal(**msg)
-                creator_id = self._crypto_keys.ecdsa_tuple_to_id(sp.creator_ecdsa)
-                msg_sig_check = sp.verify_message(creator_signature)
-
-                if msg_sig_check:
-                    # only expecting proposals from the top self.committee nodes in the rankings
-                    expected_proposers = []
-
-                    # Theres a chance we haven't done the ranking yet due to network latency
-                    # Wait a bit if that's the case
-                    retry = 0
-                    while sp.sequence_round not in self.sequencer_ranking_history:
-                        if retry == 10:
-                            break
-                        await asyncio.sleep(0.5)
-                        retry += 1
-
-                    # Grab the top nodes from the ranking, add them to expected_proposers
-                    if sp.sequence_round in self.sequencer_ranking_history:
-                        for i in range(self.committee_size):
-                            expected_proposers.append(
-                                self.sequencer_ranking_history[sp.sequence_round][i]
-                            )
-
-                        if self.id in expected_proposers:
-                            expected_proposers.remove(self.id)
-
-                        # If we get a proposal from an expected proposer
-                        if (
-                            self._crypto_keys.ecdsa_tuple_to_id(sp.creator_ecdsa)
-                            in expected_proposers
-                        ):
-                            # If this is the #1 ranked proposer, we need to send an AcceptProposal
-                            # or RejectProposal message
-                            if creator_id == expected_proposers[0]:
-                                print("Got a message from #1")
-                            else:
-                                # If it's any other expected proposer, we store their proposed message hashes
-                                print("Got a message from Non #1 - Saved")
-                                self.proposals_from_our_peers[sp.sequence_round] = sp
-
-                        else:
-                            self.my_logger.warning(
-                                f"Got proposal from node that didnt rank high enough {creator_id} {sp}"
-                            )
-
-                    else:
-                        self.my_logger.warning(
-                            f"Ranking didnt happen in time to process SequenceProposal for round {sp.sequence_round}"
-                        )
-                else:
-                    self.my_logger.warning(
-                        f"Signature verification on SequencerProposal from {creator_id} failed {sp}"
-                    )
-
             else:
                 self.my_logger.error(f"Received unrecognised message: {msg}")
 
@@ -428,9 +357,6 @@ class Node:
                     self.my_logger.warning(
                         f"Signature check for message {message.topic} from {publisher} failed!!"
                     )
-            else:
-                self.my_logger.warning("Couldnt find matching class for message!!")
-            asyncio.create_task(self.inbox(message))
 
     ####################
     # Message Sending  #
@@ -474,9 +400,7 @@ class Node:
             req_socket.write([message, b"", creator_sig, b"", sender_sig])
             await req_socket.read()
 
-    async def send_signed_message(
-        self, message: Union[Echo, SequenceProposal], receiver: str
-    ):
+    async def send_signed_message(self, message: Echo, receiver: str):
         # the receiver is an ECDSA ID
         message_sig = json.dumps(message.sign_message(self._crypto_keys)).encode()
 
@@ -491,10 +415,10 @@ class Node:
             if resp[0] == b"ALREADY_RECEIVED" and isinstance(message, Echo):
                 self.already_received[message.batched_messages_hash].add(receiver)
 
-    async def publish_signed_echo_response(self, er: Response):
-        message = json.dumps(asdict(er)).encode()
-        echo_sig = json.dumps(er.sign_echo_response(self._crypto_keys)).encode()
-        self._publisher.write([er.topic.encode(), message, echo_sig])
+    async def publish_signed_echo_response(self, to_publish: Response):
+        message = json.dumps(asdict(to_publish)).encode()
+        echo_sig = json.dumps(to_publish.sign(self._crypto_keys)).encode()
+        self._publisher.write([to_publish.topic.encode(), message, echo_sig])
 
     ######################
     # Congestion Control #
@@ -584,89 +508,6 @@ class Node:
                 self.job_time_change_flag = True
 
     ####################
-    # Sequencing       #
-    ####################
-
-    def get_rng_from_crdt(self):
-        crdt_as_tuple = []
-
-        for tx in self.sequenced_messages.elem_list:
-            crdt_as_tuple.append((tx[0], sum(tx[1])))
-
-        crdt_as_tuple = tuple(crdt_as_tuple) if len(crdt_as_tuple) > 0 else (0)
-
-        return hash(crdt_as_tuple)
-
-    async def rank_nodes(self, round_num: int):
-        # https://en.wikipedia.org/wiki/Schwartzian_transform
-        # Shared random number derived from blockchain data
-        crdt_random = self.get_rng_from_crdt()
-
-        # Create a new instance of the random number generator for each session
-        random_generator = random.Random()
-
-        # Set the seed for the random number generator
-        random_generator.seed(crdt_random)
-
-        # Assign random values to each element using the seeded random number generator
-        sorted_peers = list(self.peers)
-        sorted_peers.append(self.id)
-        sorted_peers.sort()
-
-        random_values = [
-            (random_generator.random(), node_id) for node_id in sorted_peers
-        ]
-
-        # Sort by random values
-        random_values.sort()
-
-        # Extract the original elements in their new random order
-        random_ranking = tuple([node_id for _, node_id in random_values])
-
-        self.sequencer_ranking_history[round_num] = random_ranking
-
-        if self.id == random_ranking[0]:
-            # await self.sequencing_pending_transactions(random_ranking, round_num)
-            await self.sequencing_committee_backup(random_ranking, round_num)
-
-    async def sequencing_committee_backup(self, ranking: tuple, round_num: int):
-        # 1) Send a SequenceProposal to the other nodes
-        # 2) Wait for a SequenceProposal back from the #1 node, validate included transactions
-        # 3) If Primary node SequenceProposal is valid, respond with Accept
-        vector_clock_cutoff = 10 * round_num
-        proposed_messages = [
-            hash(bm)
-            for bm in self.to_be_sequenced
-            if int(sum(value for key, value in bm.vector_clock)) <= vector_clock_cutoff
-        ]
-        sp = SequenceProposal(
-            "SequenceProposal",
-            round_num,
-            self._crypto_keys.ecdsa_public_key_tuple,
-            proposed_messages,
-        )
-
-        print(sp)
-        for i in range(self.committee_size):
-            # dont send sp to self
-            if ranking[i] != self.id:
-                self.command(sp, ranking[i])
-
-    async def sequencing_pending_transactions(self, ranking: tuple, round_num: int):
-        # Rules
-        # No duplicate transactions
-        # Make sure transaction vector_clock >= the cutoff for a round
-        #
-        # for bm in self.to_be_sequenced:
-        #     print(f"Round Number: {round_num}")
-        #     print(self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa))
-        #     print(hash(bm))
-        #     print(bm.vector_clock)
-        #     print(sum(value for key, value in bm.vector_clock))
-        #     print("--------")
-        pass
-
-    ####################
     # AT2 Consensus    #
     ####################
 
@@ -678,6 +519,8 @@ class Node:
             if self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa) == self.id
             else False
         )
+
+        print(f"I {self.id} Am gossiping {batched_message_hash}")
 
         # Step 1
         echo_subscribe = self.select_nodes(
@@ -722,11 +565,11 @@ class Node:
         # Step 7
         if i_am_message_creator:
             self.vector_clock[self.id] += 1
-            vc_sum = sum(list(self.vector_clock.values()))
+        #     vc_sum = sum(list(self.vector_clock.values()))
 
-            if vc_sum % self.call_committee_meeting_every_n_messages == 0:
-                round_num = int(vc_sum / self.call_committee_meeting_every_n_messages)
-                await self.rank_nodes(round_num)
+        #     if vc_sum % self.call_committee_meeting_every_n_messages == 0:
+        #         round_num = int(vc_sum / self.call_committee_meeting_every_n_messages)
+        #         await self.rank_nodes(round_num)
 
         # step 8
         if (
@@ -789,7 +632,12 @@ class Node:
             >= self.at2_config.delivery_threshold
         ):
             self.delivered_gossips += 1
-            self.to_be_sequenced.add(bm)
+            vector_clock_without_node_id = [value for key, value in bm.vector_clock]
+
+            self.sequenced_messages.append(
+                (vector_clock_without_node_id, batched_message_hash)
+            )
+            self.sequenced_messages.sort()
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
         else:
             self.my_logger.warning(
@@ -876,9 +724,7 @@ class Node:
             asyncio.create_task(self.unsubscribe(command_obj))
         elif issubclass(type(command_obj), BatchedMessages):
             asyncio.create_task(self.send_signed_batched_message(command_obj, receiver))
-        elif issubclass(type(command_obj), Echo) or issubclass(
-            type(command_obj), SequenceProposal
-        ):
+        elif issubclass(type(command_obj), Echo):
             asyncio.create_task(self.send_signed_message(command_obj, receiver))
         elif issubclass(type(command_obj), Response):
             asyncio.create_task(self.publish_signed_echo_response(command_obj))
