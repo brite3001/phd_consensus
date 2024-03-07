@@ -7,6 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from talipp.indicators import ZLEMA, RSI
 from scipy.stats import poisson, norm
 from typing import Union
+from sortedcontainers import SortedSet
 import base64
 import asyncio
 import aiozmq
@@ -130,7 +131,7 @@ class Node:
     # Sequencing
     # str == node_id
     vector_clock: defaultdict[str, int] = field(factory=lambda: defaultdict(int))
-    sequenced_messages: list[tuple] = field(factory=list)
+    sequenced_messages = field(factory=lambda: SortedSet())
 
     # Statistics
     sent_gossips: int = field(factory=int)
@@ -464,6 +465,7 @@ class Node:
             self.job_time_change_flag = False
 
     async def increasing_congestion_monitoring_job(self):
+        await asyncio.sleep(random.uniform(0.1, 2.5))
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 20:
             filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
@@ -518,8 +520,6 @@ class Node:
             else False
         )
 
-        print(f"I {self.id} Am gossiping {batched_message_hash}")
-
         # Step 1
         echo_subscribe = self.select_nodes(
             self.node_selection_type, self.at2_config.echo_sample_size
@@ -563,11 +563,6 @@ class Node:
         # Step 7
         if i_am_message_creator:
             self.vector_clock[self.id] += 1
-        #     vc_sum = sum(list(self.vector_clock.values()))
-
-        #     if vc_sum % self.call_committee_meeting_every_n_messages == 0:
-        #         round_num = int(vc_sum / self.call_committee_meeting_every_n_messages)
-        #         await self.rank_nodes(round_num)
 
         # step 8
         if (
@@ -632,10 +627,10 @@ class Node:
             self.delivered_gossips += 1
             vector_clock_without_node_id = [value for key, value in bm.vector_clock]
 
-            self.sequenced_messages.append(
+            self.sequenced_messages.add(
                 (tuple(vector_clock_without_node_id), batched_message_hash)
             )
-            self.sequenced_messages.sort()
+
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
         else:
             self.my_logger.warning(
