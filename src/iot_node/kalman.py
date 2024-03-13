@@ -21,15 +21,15 @@ def kalman_filter(data: list):
     kf.H = np.array([[1]])
 
     # Define measurement noise covariance (R)
-    kf.R = np.array([[1]])
+    kf.R = np.array([[0.5]])
 
     # Define process noise covariance (Q)
-    kf.Q = np.array([[0.01]])
+    kf.Q = np.array([[0.1]])
 
     # Apply Kalman filter to each measurement
-    for price in data:
+    for grtt in data:
         kf.predict()
-        kf.update(price)
+        kf.update(grtt)
         smoothed_data.append(kf.x[0])  # Store the filtered estimate
 
     return smoothed_data

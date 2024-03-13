@@ -465,10 +465,13 @@ class Node:
             self.job_time_change_flag = False
 
     async def increasing_congestion_monitoring_job(self):
+        from scipy.signal import savgol_filter
+
         await asyncio.sleep(random.uniform(0.1, 2.5))
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 20:
-            filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
+            # filtered_zlema = kalman_filter(self.block_times)
+            filtered_zlema = savgol_filter(self.block_times, 14, 1)
             rsi = int(RSI(14, filtered_zlema)[-1])
 
             increase = random.uniform(1.01, 1.1)
@@ -490,9 +493,13 @@ class Node:
                 self.job_time_change_flag = True
 
     async def decrease_congestion_monitoring_job(self):
+        from scipy.signal import savgol_filter
+
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 30:
-            filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
+            # filtered_zlema = kalman_filter(self.block_times)
+            filtered_zlema = savgol_filter(self.block_times, 21, 1)
+
             rsi = int(RSI(21, filtered_zlema)[-1])
 
             decrease = random.uniform(0.9, 0.99)

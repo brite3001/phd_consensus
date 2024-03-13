@@ -82,7 +82,7 @@ class Echo(DirectMessage):
 class Response(PublishMessage):
     creator: tuple = field(converter=tuple)  # ECDSA pubkey
 
-    def get_echo_bytes(self):
+    def get_echo_bytes(self) -> bytes:
         message_bytes = (
             str(self.topic)
             + str(self.message_type)
@@ -92,7 +92,7 @@ class Response(PublishMessage):
 
         return message_bytes.encode()
 
-    def sign(self, keys):
+    def sign(self, keys) -> tuple:
         # The sender part is signed with the ECDSA private key
 
         return ecdsa.sign(self.get_echo_bytes(), keys.ecdsa_private_key)
@@ -128,7 +128,7 @@ class BatchedMessages:
     def __hash__(self):
         return hash(self.get_creator_bytes())
 
-    def get_creator_bytes(self):
+    def get_creator_bytes(self) -> bytes:
         creator_bytes = (
             self.message_type
             + self.creator_bls
@@ -141,7 +141,7 @@ class BatchedMessages:
 
         return creator_bytes.encode()
 
-    def get_sender_bytes(self):
+    def get_sender_bytes(self) -> bytes:
         sender_bytes = (
             self.message_type
             + self.creator_bls
@@ -156,7 +156,7 @@ class BatchedMessages:
 
         return sender_bytes.encode()
 
-    def sign_as_creator(self, keys):
+    def sign_as_creator(self, keys) -> tuple:
         # Here we sign the whole message, but don't sign the sender part
 
         return ecdsa.sign(self.get_creator_bytes(), keys.ecdsa_private_key)
