@@ -4,7 +4,7 @@ from fastecdsa import curve, keys, point
 from merkly.mtree import MerkleTree
 from collections import defaultdict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from talipp.indicators import ZLEMA, RSI
+from talipp.indicators import ZLEMA, RSI, SMA, EMA
 from scipy.stats import poisson, norm
 from typing import Union
 from sortedcontainers import SortedSet
@@ -471,26 +471,29 @@ class Node:
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 20:
             # filtered_zlema = kalman_filter(self.block_times)
-            filtered_zlema = savgol_filter(self.block_times, 14, 1)
-            rsi = int(RSI(14, filtered_zlema)[-1])
+            # filtered_zlema = savgol_filter(self.block_times, 14, 1)
+            # filtered_zlema = [x for x in SMA(14, self.block_times) if x]
 
-            increase = random.uniform(1.01, 1.1)
+            if len(filtered_zlema) >= 14:
+                rsi = int(RSI(14, filtered_zlema)[-1])
 
-            dont_exceed_max_target = (
-                self.actual_latency * increase < self.max_gossip_timeout_time
-            )
+                increase = random.uniform(1.01, 1.1)
 
-            # Stops actual_latency increase when network has low latency.
-            is_latency_above_target = (
-                False if max(self.block_times[:20]) < self.target_latency else True
-            )
-
-            if rsi > 70 and dont_exceed_max_target and is_latency_above_target:
-                self.actual_latency = round(self.actual_latency * increase, 3)
-                self.my_logger.error(
-                    f"Congestion Control [{rsi}] (/\) - New Target: {self.actual_latency}"
+                dont_exceed_max_target = (
+                    self.actual_latency * increase < self.max_gossip_timeout_time
                 )
-                self.job_time_change_flag = True
+
+                # Stops actual_latency increase when network has low latency.
+                network_not_slow = (
+                    False if filtered_zlema[-1] < self.target_latency else True
+                )
+
+                if rsi > 70 and dont_exceed_max_target and network_not_slow:
+                    self.actual_latency = round(self.actual_latency * increase, 3)
+                    self.my_logger.error(
+                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.actual_latency}"
+                    )
+                    self.job_time_change_flag = True
 
     async def decrease_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
@@ -498,21 +501,25 @@ class Node:
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 30:
             # filtered_zlema = kalman_filter(self.block_times)
-            filtered_zlema = savgol_filter(self.block_times, 21, 1)
+            # filtered_zlema = savgol_filter(self.block_times, 21, 1)
+            # filtered_zlema = [x for x in SMA(21, self.block_times) if x]
 
-            rsi = int(RSI(21, filtered_zlema)[-1])
+            if len(filtered_zlema) >= 21:
+                rsi = int(RSI(21, filtered_zlema)[-1])
 
-            decrease = random.uniform(0.9, 0.99)
+                decrease = random.uniform(0.9, 0.99)
 
-            dont_go_below_target = self.actual_latency * decrease >= self.target_latency
+                # dont_go_below_target = (
+                #     self.actual_latency * decrease >= self.target_latency
+                # )
 
-            if rsi < 30 and dont_go_below_target:
-                self.actual_latency = round(self.actual_latency * decrease, 3)
+                if rsi < 30:
+                    self.actual_latency = round(self.actual_latency * decrease, 3)
 
-                self.my_logger.error(
-                    f"Congestion Control [{rsi}] (\/) - New Target: {self.actual_latency}"
-                )
-                self.job_time_change_flag = True
+                    self.my_logger.error(
+                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.actual_latency}"
+                    )
+                    self.job_time_change_flag = True
 
     ####################
     # AT2 Consensus    #
