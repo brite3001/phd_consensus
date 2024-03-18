@@ -69,9 +69,12 @@ async def main():
 
     n1 = nodes[0]
 
+    ###########
+    # Fast    #
+    ###########
     start_time = time.time()
     for i in range(2000):
-        print(i)
+        print(f"Fast {i}")
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
 
@@ -84,9 +87,50 @@ async def main():
         n.command(gos)
 
         await asyncio.sleep(0.25)
-    end_time = time.time()
 
     await asyncio.sleep(60)
+
+    ###########
+    # Slow    #
+    ###########
+    for i in range(1000):
+        print(f"Slow {i}")
+        gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
+        n = random.choice(nodes)
+
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+
+        await asyncio.sleep(1)
+
+    await asyncio.sleep(60)
+
+    ###########
+    # Mixed   #
+    ###########
+    for i in range(1000):
+        print(f"Mixed {i}")
+        gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
+        n = random.choice(nodes)
+
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+
+        await asyncio.sleep(random.uniform(0.1, 1))
+
+    await asyncio.sleep(60)
+
+    end_time = time.time()
 
     for n in nodes:
         print(hash(tuple(n.sequenced_messages)))
