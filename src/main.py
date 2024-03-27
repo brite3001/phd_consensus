@@ -5,16 +5,60 @@ import signal
 import uvloop
 import random
 import time
+import os
 
-from stats import plot_avg_min_max_block_time
-from stats import plot_batched_message_magnitude
-from stats import average_min_max_lists
 from iot_node.node import Node
 from iot_node.message_classes import Gossip
 from iot_node.at2_classes import AT2Configuration
 from logs import get_logger
 
 logging = get_logger("runner")
+
+
+def save_list(ints_to_save: list, test_name: str, file_name: str):
+    subfolder = f"graphs/{test_name}"
+    folder_path = os.path.join(
+        os.getcwd(), subfolder
+    )  # Get the current working directory and append the subfolder name
+    os.makedirs(folder_path, exist_ok=True)  # Create the subfolder if it doesn't exist
+
+    file_path = os.path.join(
+        folder_path, file_name
+    )  # Create the complete file path within the subfolder
+    try:
+        with open(
+            file_path, "x"
+        ) as f:  # 'x' mode opens for exclusive creation, fails if the file already exists
+            f.write(",".join(map(str, ints_to_save)))
+    except FileExistsError:
+        print("File already exists. Use a different file name.")
+
+
+def average_min_max_lists(lists):
+    # Find the length of the longest list
+    max_length = max(len(lst) for lst in lists)
+
+    # Initialize lists to store the sums, counts, minimums, and maximums
+    sum_list = [0] * max_length
+    count_list = [0] * max_length
+    min_list = [float("inf")] * max_length
+    max_list = [float("-inf")] * max_length
+
+    # Calculate the sums, counts, minimums, and maximums
+    for lst in lists:
+        for i, val in enumerate(lst):
+            sum_list[i] += val
+            count_list[i] += 1
+            min_list[i] = min(min_list[i], val)
+            max_list[i] = max(max_list[i], val)
+
+    # Calculate the averages
+    avg_list = [
+        sum_val / count_val if count_val != 0 else float("nan")
+        for sum_val, count_val in zip(sum_list, count_list)
+    ]
+
+    return avg_list, min_list, max_list
 
 
 async def main():
@@ -69,10 +113,13 @@ async def main():
 
     n1 = nodes[0]
 
-    ###########
-    # Fast    #
-    ###########
+    TEST_NAME = "rsi-savgol"
     start_time = time.time()
+
+    # ###########
+    # # Fast    #
+    # ###########
+
     for i in range(2000):
         print(f"Fast {i}")
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
@@ -88,7 +135,15 @@ async def main():
 
         await asyncio.sleep(0.25)
 
+    for node in nodes:
+        node.scheduler.pause_job(node.increase_job_id)
+        node.scheduler.pause_job(node.decrease_job_id)
+
     await asyncio.sleep(60)
+
+    for node in nodes:
+        node.scheduler.resume_job(node.increase_job_id)
+        node.scheduler.resume_job(node.decrease_job_id)
 
     ###########
     # Slow    #
@@ -108,12 +163,20 @@ async def main():
 
         await asyncio.sleep(1)
 
+    for node in nodes:
+        node.scheduler.pause_job(node.increase_job_id)
+        node.scheduler.pause_job(node.decrease_job_id)
+
     await asyncio.sleep(60)
+
+    for node in nodes:
+        node.scheduler.resume_job(node.increase_job_id)
+        node.scheduler.resume_job(node.decrease_job_id)
 
     ###########
     # Mixed   #
     ###########
-    for i in range(1000):
+    for i in range(2000):
         print(f"Mixed {i}")
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
@@ -128,6 +191,10 @@ async def main():
 
         await asyncio.sleep(random.uniform(0.1, 1))
 
+    for node in nodes:
+        node.scheduler.pause_job(node.increase_job_id)
+        node.scheduler.pause_job(node.decrease_job_id)
+
     await asyncio.sleep(60)
 
     end_time = time.time()
@@ -136,22 +203,38 @@ async def main():
         print(hash(tuple(n.sequenced_messages)))
 
     print(f"Time taken: {round(end_time - start_time, 3)}s")
-    for n in nodes:
-        n.statistics()
-        print("---------------------------")
+    # for n in nodes:
+    #     n.statistics()
+    #     print("---------------------------")
 
     received_msg_metadata = []
     sent_msg_metadata = []
     node_ids = []
+    total_sent_messages = 0
+    total_received_messages = 0
+    total_messages_delivered = 0
 
     for node in nodes:
         received_msg_metadata.append(node.block_times)
         sent_msg_metadata.append(node.sent_msg_metadata)
         node_ids.append(node.id)
+        total_sent_messages += node.sent_gossips
+        total_received_messages += node.received_gossips
+        total_messages_delivered += node.delivered_gossips
 
     avg_list, min_list, max_list = average_min_max_lists(received_msg_metadata)
-    plot_batched_message_magnitude(sent_msg_metadata)
-    plot_avg_min_max_block_time(avg_list, min_list, max_list)
+
+    save_list(avg_list, TEST_NAME, "avg.txt")
+    save_list(min_list, TEST_NAME, "min.txt")
+    save_list(max_list, TEST_NAME, "max.txt")
+    aaa = [total_sent_messages, total_received_messages, total_messages_delivered]
+    save_list(aaa, TEST_NAME, "sent_recv_deliv.txt")
+    save_list(sent_msg_metadata, TEST_NAME, "sent_metadata.txt")
+
+    print("**********************************")
+    print("FINISHED!!!")
+    print("Dont forget to change the TEST TYPE!!")
+    print("**********************************")
 
 
 async def shutdown(signal, loop):

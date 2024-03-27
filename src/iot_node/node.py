@@ -4,7 +4,7 @@ from fastecdsa import curve, keys, point
 from merkly.mtree import MerkleTree
 from collections import defaultdict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from talipp.indicators import ZLEMA, RSI, SMA, EMA
+from talipp.indicators import ZLEMA, RSI, SMA, EMA, KAMA, TEMA, TSI
 from scipy.stats import poisson, norm
 from typing import Union
 from sortedcontainers import SortedSet
@@ -107,7 +107,7 @@ class Node:
 
     # Tuneable Values
     target_latency: int = 10
-    actual_latency: int = field(factory=int)
+    current_latency: int = field(factory=int)
     max_gossip_timeout_time = 60
     node_selection_type = "normal"
     random_seed = 2929
@@ -117,6 +117,8 @@ class Node:
     pending_gossips: list[Gossip] = field(factory=list)
     pending_responses: list[Response] = field(factory=list)
     batched_message_job_id = field(init=False)
+    increase_job_id = field(init=False)
+    decrease_job_id = field(init=False)
     block_times: list = field(factory=list)
     job_time_change_flag: bool = field(factory=bool)
 
@@ -459,7 +461,7 @@ class Node:
             updated_job = self.scheduler.add_job(
                 self.batch_message_builder_job,
                 trigger="interval",
-                seconds=self.actual_latency,
+                seconds=self.current_latency,
             )
             self.batched_message_job_id = updated_job.id
             self.job_time_change_flag = False
@@ -467,31 +469,40 @@ class Node:
     async def increasing_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
 
+        # mee = [random.uniform(1.01, 1.1) for _ in range(20)]
+        # mee = kalman_filter(ZLEMA(14, mee))
+        # print(mee)
+        # tsi = TSI(2, 4, mee)
+        # print(tsi)
+
         await asyncio.sleep(random.uniform(0.1, 2.5))
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 20:
-            # filtered_zlema = kalman_filter(self.block_times)
-            # filtered_zlema = savgol_filter(self.block_times, 14, 1)
+            # filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
+            filtered_zlema = savgol_filter(self.block_times, 14, 1)
             # filtered_zlema = [x for x in SMA(14, self.block_times) if x]
+            # filtered_zlema = [x for x in EMA(14, self.block_times) if x]
+            # filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
 
-            if len(filtered_zlema) >= 14:
+            if len(filtered_zlema) >= 15:
                 rsi = int(RSI(14, filtered_zlema)[-1])
+                # rsi = TSI(3, 6, filtered_zlema)[-1]
 
                 increase = random.uniform(1.01, 1.1)
 
                 dont_exceed_max_target = (
-                    self.actual_latency * increase < self.max_gossip_timeout_time
+                    self.current_latency * increase < self.max_gossip_timeout_time
                 )
 
-                # Stops actual_latency increase when network has low latency.
+                # Stops current_latency increase when network has low latency.
                 network_not_slow = (
                     False if filtered_zlema[-1] < self.target_latency else True
                 )
 
                 if rsi > 70 and dont_exceed_max_target and network_not_slow:
-                    self.actual_latency = round(self.actual_latency * increase, 3)
+                    self.current_latency = round(self.current_latency * increase, 3)
                     self.my_logger.error(
-                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.actual_latency}"
+                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
                     )
                     self.job_time_change_flag = True
 
@@ -499,25 +510,29 @@ class Node:
         from scipy.signal import savgol_filter
 
         # Increase the block time if we start overshooting the target
+        # IF TSI >= 50
         if len(self.block_times) >= 30:
-            # filtered_zlema = kalman_filter(self.block_times)
-            # filtered_zlema = savgol_filter(self.block_times, 21, 1)
+            # filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
+            filtered_zlema = savgol_filter(self.block_times, 21, 1)
             # filtered_zlema = [x for x in SMA(21, self.block_times) if x]
+            # filtered_zlema = [x for x in EMA(21, self.block_times) if x]
+            # filtered_zlema = [x for x in KAMA(21, 2, 30, self.block_times) if x]
 
-            if len(filtered_zlema) >= 21:
+            if len(filtered_zlema) >= 22:
                 rsi = int(RSI(21, filtered_zlema)[-1])
+                # rsi = TSI(13, 25, filtered_zlema)[-1]
 
                 decrease = random.uniform(0.9, 0.99)
 
                 # dont_go_below_target = (
-                #     self.actual_latency * decrease >= self.target_latency
+                #     self.current_latency * decrease >= self.target_latency
                 # )
 
                 if rsi < 30:
-                    self.actual_latency = round(self.actual_latency * decrease, 3)
+                    self.current_latency = round(self.current_latency * decrease, 3)
 
                     self.my_logger.error(
-                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.actual_latency}"
+                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.current_latency}"
                     )
                     self.job_time_change_flag = True
 
@@ -892,7 +907,7 @@ class Node:
 
         await asyncio.sleep(random.randint(1, 3))
 
-        self.actual_latency = self.target_latency
+        self.current_latency = self.target_latency
 
         # Add the job to the scheduler, which triggers every 10 seconds
         self.scheduler = AsyncIOScheduler()
@@ -901,13 +916,17 @@ class Node:
         )
         self.batched_message_job_id = job.id
 
-        self.scheduler.add_job(
+        job = self.scheduler.add_job(
             self.increasing_congestion_monitoring_job, trigger="interval", seconds=5
         )
 
-        self.scheduler.add_job(
+        self.increase_job_id = job.id
+
+        job = self.scheduler.add_job(
             self.decrease_congestion_monitoring_job, trigger="interval", seconds=10
         )
+
+        self.decrease_job_id = job.id
 
         # Start the scheduler
         self.scheduler.start()
