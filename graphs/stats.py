@@ -215,7 +215,7 @@ def load_ints(test_name: str, file_name: str) -> list:
         return []
 
 
-test = "graphs/rsi-kalman-zlema"
+test = "graphs/tsi-ema"
 avg, min, max = (
     load_floats(test, "avg.txt"),
     load_floats(test, "min.txt"),

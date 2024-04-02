@@ -469,24 +469,26 @@ class Node:
     async def increasing_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
 
-        # mee = [random.uniform(1.01, 1.1) for _ in range(20)]
-        # mee = kalman_filter(ZLEMA(14, mee))
+        # mee = [random.uniform(1.01, 1.1) for _ in range(45)]
+        # mee = SMA(21, mee)
         # print(mee)
-        # tsi = TSI(2, 4, mee)
+        # print(len(mee))
+        # tsi = TSI(9, 15, mee)
         # print(tsi)
+        # print(tsi[-1])
 
         await asyncio.sleep(random.uniform(0.1, 2.5))
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 20:
             # filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
-            filtered_zlema = savgol_filter(self.block_times, 14, 1)
+            # filtered_zlema = savgol_filter(self.block_times, 14, 1)
             # filtered_zlema = [x for x in SMA(14, self.block_times) if x]
-            # filtered_zlema = [x for x in EMA(14, self.block_times) if x]
+            filtered_zlema = [x for x in EMA(14, self.block_times) if x]
             # filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
 
             if len(filtered_zlema) >= 15:
-                rsi = int(RSI(14, filtered_zlema)[-1])
-                # rsi = TSI(3, 6, filtered_zlema)[-1]
+                # rsi = int(RSI(14, filtered_zlema)[-1])
+                rsi = TSI(3, 6, filtered_zlema)[-1]
 
                 increase = random.uniform(1.01, 1.1)
 
@@ -499,7 +501,8 @@ class Node:
                     False if filtered_zlema[-1] < self.target_latency else True
                 )
 
-                if rsi > 70 and dont_exceed_max_target and network_not_slow:
+                # TSI +30
+                if rsi > 30 and dont_exceed_max_target and network_not_slow:
                     self.current_latency = round(self.current_latency * increase, 3)
                     self.my_logger.error(
                         f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
@@ -510,17 +513,16 @@ class Node:
         from scipy.signal import savgol_filter
 
         # Increase the block time if we start overshooting the target
-        # IF TSI >= 50
-        if len(self.block_times) >= 30:
+        if len(self.block_times) >= 45:
             # filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
-            filtered_zlema = savgol_filter(self.block_times, 21, 1)
-            # filtered_zlema = [x for x in SMA(21, self.block_times) if x]
-            # filtered_zlema = [x for x in EMA(21, self.block_times) if x]
+            # filtered_zlema = savgol_filter(self.block_times, 21, 1)
+            # filtered_zlema = [x for x in SMA(22, self.block_times) if x]
+            filtered_zlema = [x for x in EMA(21, self.block_times) if x]
             # filtered_zlema = [x for x in KAMA(21, 2, 30, self.block_times) if x]
 
-            if len(filtered_zlema) >= 22:
-                rsi = int(RSI(21, filtered_zlema)[-1])
-                # rsi = TSI(13, 25, filtered_zlema)[-1]
+            if len(filtered_zlema) >= 21:
+                # rsi = int(RSI(21, filtered_zlema)[-1])
+                rsi = TSI(9, 15, filtered_zlema)[-1]
 
                 decrease = random.uniform(0.9, 0.99)
 
@@ -528,7 +530,8 @@ class Node:
                 #     self.current_latency * decrease >= self.target_latency
                 # )
 
-                if rsi < 30:
+                # TSI -30
+                if rsi < -30:
                     self.current_latency = round(self.current_latency * decrease, 3)
 
                     self.my_logger.error(

@@ -113,7 +113,7 @@ async def main():
 
     n1 = nodes[0]
 
-    TEST_NAME = "rsi-savgol"
+    TEST_NAME = "tsi-ema"
     start_time = time.time()
 
     # ###########
