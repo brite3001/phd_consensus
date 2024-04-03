@@ -483,8 +483,8 @@ class Node:
             # filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
             # filtered_zlema = savgol_filter(self.block_times, 14, 1)
             # filtered_zlema = [x for x in SMA(14, self.block_times) if x]
-            filtered_zlema = [x for x in EMA(14, self.block_times) if x]
-            # filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
+            # filtered_zlema = [x for x in EMA(14, self.block_times) if x]
+            filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
 
             if len(filtered_zlema) >= 15:
                 # rsi = int(RSI(14, filtered_zlema)[-1])
@@ -517,8 +517,8 @@ class Node:
             # filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
             # filtered_zlema = savgol_filter(self.block_times, 21, 1)
             # filtered_zlema = [x for x in SMA(22, self.block_times) if x]
-            filtered_zlema = [x for x in EMA(21, self.block_times) if x]
-            # filtered_zlema = [x for x in KAMA(21, 2, 30, self.block_times) if x]
+            # filtered_zlema = [x for x in EMA(21, self.block_times) if x]
+            filtered_zlema = [x for x in KAMA(21, 2, 30, self.block_times) if x]
 
             if len(filtered_zlema) >= 21:
                 # rsi = int(RSI(21, filtered_zlema)[-1])

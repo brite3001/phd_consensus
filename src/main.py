@@ -113,7 +113,7 @@ async def main():
 
     n1 = nodes[0]
 
-    TEST_NAME = "tsi-ema"
+    TEST_NAME = "tsi-kama"
     start_time = time.time()
 
     # ###########

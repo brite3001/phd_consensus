@@ -60,11 +60,10 @@ def measure_memory_usage():
     return process.memory_info().rss // 1024  # Convert to KB
 
 
-def load_list(file_name: str) -> list:
+def load_list(sub_folder, file_name: str) -> list:
     try:
         # Assuming the subfolder is named 'data'
-        subfolder = "moving_average_benchmark"
-        file_path = os.path.join(subfolder, file_name)
+        file_path = os.path.join(sub_folder, file_name)
 
         with open(file_path, "r") as f:  # Open file in read mode
             content = (
@@ -79,8 +78,8 @@ def load_list(file_name: str) -> list:
         return []
 
 
-# Generate example data
-data = load_list("rsi-kalman-zlema_avg.txt")
+test_name = "graphs/tsi-sma"
+data = load_list(test_name, "avg.txt")
 
 # Set window size for moving average
 window_size = 3
@@ -89,17 +88,17 @@ window_size = 3
 start_cpu_time = measure_cpu_time()
 start_memory_usage = measure_memory_usage()
 
-for _ in range(20):
+for _ in range(100):
     # Smooth data
-    smoothed_data = kalman_filter(ZLEMA(14, data))
+    # smoothed_data = kalman_filter(ZLEMA(14, data))
     # smoothed_data = savgol_filter(data, 14, 1)
-    # smoothed_data = [x for x in SMA(14, data) if x]
+    smoothed_data = [x for x in SMA(14, data) if x]
     # smoothed_data = [x for x in EMA(14, data) if x]
     # smoothed_data = [x for x in KAMA(14, 2, 30, data) if x]
 
     # trend detection
-    rsi = int(RSI(14, smoothed_data)[-1])
-    # rsi = TSI(3, 6, smoothed_data)[-1]
+    # rsi = int(RSI(14, smoothed_data)[-1])
+    rsi = TSI(3, 6, smoothed_data)[-1]
 
 # Measure end CPU time and memory usage
 end_cpu_time = measure_cpu_time()
