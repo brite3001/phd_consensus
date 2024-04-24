@@ -106,19 +106,23 @@ async def main():
             )
             router_start += 1
             publisher_start += 1
-    elif transport_type == "INPROC":
+    elif transport_type == "IPC":
         for i in range(NUM_NODES):
-            router = f"inproc://router/{router_start + i}"
-            publisher = f"inproc://publisher/{router_start + i}"
-            router_list.append(router)
+            router_list.append(f"ipc://router/{20001 + i}")
 
+        create_folder_structure("/home/zac/Documents/GitHub/phd_consensus/router")
+        create_folder_structure("/home/zac/Documents/GitHub/phd_consensus/publisher")
+
+        for _ in range(len(router_list)):
             nodes.append(
                 Node(
-                    router_bind=deepcopy(router),
-                    publisher_bind=deepcopy(publisher),
+                    router_bind=f"ipc://router/{router_start}",
+                    publisher_bind=f"ipc://publisher/{publisher_start}",
                     at2_config=at2_config,
                 )
             )
+            router_start += 1
+            publisher_start += 1
 
     else:
         logging.error("Check transport type")
