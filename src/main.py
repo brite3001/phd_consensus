@@ -1,4 +1,5 @@
 from copy import deepcopy
+from pathlib import Path
 
 import asyncio
 import signal
@@ -61,39 +62,66 @@ def average_min_max_lists(lists):
     return avg_list, min_list, max_list
 
 
+def create_folder_structure(folder_path):
+    """
+    Create folder structure recursively.
+
+    Args:
+    folder_path (str): Path of the folder to create.
+    """
+    try:
+        path = Path(folder_path)
+        path.mkdir(parents=True, exist_ok=True)
+        print(f"Folder '{folder_path}' created successfully.")
+    except FileExistsError:
+        print(f"Folder '{folder_path}' already exists.")
+    except Exception as e:
+        print(f"An error occurred while creating folder '{folder_path}': {e}")
+
+
 async def main():
     router_start = 20001
     publisher_start = 21001
     nodes = []
-    num_nodes = 10
+    NUM_NODES = 10
+    transport_type = "IPC"
 
     # at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
     # at2_config = AT2Configuration(7, 7, 7, 5, 6, 7)
     at2_config = AT2Configuration(6, 6, 6, 4, 5, 6)
 
-    router_list = [
-        "tcp://127.0.0.1:20001",
-        "tcp://127.0.0.1:20002",
-        "tcp://127.0.0.1:20003",
-        "tcp://127.0.0.1:20004",
-        "tcp://127.0.0.1:20005",
-        "tcp://127.0.0.1:20006",
-        "tcp://127.0.0.1:20007",
-        "tcp://127.0.0.1:20008",
-        "tcp://127.0.0.1:20009",
-        "tcp://127.0.0.1:20010",
-    ]
+    router_list = []
 
-    for _ in range(num_nodes):
-        nodes.append(
-            Node(
-                router_bind=f"tcp://127.0.0.1:{router_start}",
-                publisher_bind=f"tcp://127.0.0.1:{publisher_start}",
-                at2_config=at2_config,
+    if transport_type == "TCP":
+        for i in range(NUM_NODES):
+            router_list.append(f"tcp://127.0.0.1:{20001 + i}")
+
+        for _ in range(len(router_list)):
+            nodes.append(
+                Node(
+                    router_bind=f"tcp://127.0.0.1:{router_start}",
+                    publisher_bind=f"tcp://127.0.0.1:{publisher_start}",
+                    at2_config=at2_config,
+                )
             )
-        )
-        router_start += 1
-        publisher_start += 1
+            router_start += 1
+            publisher_start += 1
+    elif transport_type == "INPROC":
+        for i in range(NUM_NODES):
+            router = f"inproc://router/{router_start + i}"
+            publisher = f"inproc://publisher/{router_start + i}"
+            router_list.append(router)
+
+            nodes.append(
+                Node(
+                    router_bind=deepcopy(router),
+                    publisher_bind=deepcopy(publisher),
+                    at2_config=at2_config,
+                )
+            )
+
+    else:
+        logging.error("Check transport type")
 
     logging.info("Spinning up nodes...")
     for node in nodes:

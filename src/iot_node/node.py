@@ -861,6 +861,7 @@ class Node:
 
     async def init_sockets(self):
         self._subscriber = await aiozmq.create_zmq_stream(zmq.SUB)
+
         self._publisher = await aiozmq.create_zmq_stream(
             zmq.PUB, bind=self.publisher_bind
         )
