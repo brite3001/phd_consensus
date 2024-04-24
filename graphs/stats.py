@@ -131,8 +131,8 @@ def plot_batched_message_magnitude(
 
     # Add text in the top right corner with a box around it
     plt.text(
-        0.95,
-        0.95,
+        0.98,
+        0.98,
         text_content,
         fontsize=12,
         color="black",
@@ -215,7 +215,7 @@ def load_ints(test_name: str, file_name: str) -> list:
         return []
 
 
-test = "graphs/tsi-kama"
+test = "graphs/tsi-savgol"
 avg, min, max = (
     load_floats(test, "avg.txt"),
     load_floats(test, "min.txt"),

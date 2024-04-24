@@ -6,11 +6,11 @@ import matplotlib.pyplot as plt
 
 # Data for execution time + CPU time
 algorithms_exe_cpu = [
-    "TSI_SAVGOL",
-    "TSI_EMA",
-    "TSI_SMA",
-    "TSI_KAMA",
-    "TSI_ZLEMA_KALMAN",
+    "TSI-SAVGOL",
+    "TSI-EMA",
+    "TSI-SMA",
+    "TSI-KAMA",
+    "TSI-KALMAN",
 ]
 execution_times = [(2.96, 1.71), (3.15, 1.9), (3.08, 1.82), (3.07, 2.02), (9.88, 8.63)]
 
@@ -23,7 +23,7 @@ execution_times_sorted = [x[1][0] for x in sorted_exe_cpu_data]
 cpu_times_sorted = [x[1][1] for x in sorted_exe_cpu_data]
 
 # Data for memory usage
-algorithms_mem = ["TSI_KAMA", "TSI_SMA", "TSI_EMA", "TSI_ZLEMA_KALMAN", "TSI_SAVGOL"]
+algorithms_mem = ["TSI-KAMA", "TSI-SMA", "TSI-EMA", "TSI-KALMAN", "TSI-SAVGOL"]
 memory_usage = [768, 768, 768, 768, 2688]
 
 # Sort algorithms based on memory usage
@@ -43,7 +43,7 @@ plt.bar(
     label="Execution Time",
 )
 plt.bar(algorithms_sorted_exe_cpu, cpu_times_sorted, color="salmon", label="CPU Time")
-plt.title("Execution Time and CPU Time for Different Algorithms")
+plt.title("Execution Time and CPU Time")
 plt.xlabel("Algorithms")
 plt.ylabel("Time (s)")
 plt.legend()
@@ -51,7 +51,7 @@ plt.legend()
 # Plotting memory usage
 plt.subplot(1, 2, 2)
 plt.bar(algorithms_sorted_mem, memory_usage_sorted, color="green")
-plt.title("Memory Usage for Different Algorithms")
+plt.title("Memory Usage")
 plt.xlabel("Algorithms")
 plt.ylabel("Memory Usage (KB)")
 
@@ -67,7 +67,7 @@ plt.show()
 
 
 # Data
-algorithms = ["TSI_SAVGOL", "TSI_KAMA", "TSI_ZLEMA_KALMAN", "TSI_EMA", "TSI_SMA"]
+algorithms = ["TSI-SAVGOL", "TSI-KAMA", "TSI-KALMAN", "TSI-EMA", "TSI-SMA"]
 dropped_values = [18, 21, 7, 14, 196]
 
 # Sort algorithms based on the number of dropped values
@@ -103,7 +103,7 @@ plt.show()
 ##########################
 
 # Data
-algorithms = ["Savgol", "KAMA", "Kalman ZLEMA", "SMA", "EMA"]
+algorithms = ["TSI-SAVGOL", "TSI-KAMA", "TSI-KALMAN", "TSI-SMA", "TSI-EMA"]
 mad_values = [6.09, 6.95, 7.17, 5.71, 6.83]
 rmse_values = [8.09, 9.81, 9.51, 8.42, 9.74]
 
@@ -185,4 +185,4 @@ plt.show()
 # SMA - 19
 # EMA - 17
 # KALMAN-ZLEMA - 15
-# KAMA - 7
+# KAMA - 12

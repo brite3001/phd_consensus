@@ -6,11 +6,11 @@ import matplotlib.pyplot as plt
 
 # Data for execution time + CPU time
 algorithms_exe_cpu = [
-    "RSI_SAVGOL",
-    "RSI_EMA",
-    "RSI_SMA",
-    "RSI_KAMA",
-    "RSI_ZLEMA_KALMAN",
+    "RSI-SAVGOL",
+    "RSI-EMA",
+    "RSI-SMA",
+    "RSI-KAMA",
+    "RSI-KALMAN",
 ]
 execution_times = [(1.79, 0.53), (1.83, 0.59), (1.85, 0.60), (2.03, 0.78), (8.76, 7.51)]
 
@@ -23,7 +23,7 @@ execution_times_sorted = [x[1][0] for x in sorted_exe_cpu_data]
 cpu_times_sorted = [x[1][1] for x in sorted_exe_cpu_data]
 
 # Data for memory usage
-algorithms_mem = ["RSI_KAMA", "RSI_SMA", "RSI_EMA", "RSI_ZLEMA_KALMAN", "RSI_SAVGOL"]
+algorithms_mem = ["RSI-KAMA", "RSI-SMA", "RSI-EMA", "RSI-KALMAN", "RSI-SAVGOL"]
 memory_usage = [256, 256, 384, 512, 2176]
 
 # Sort algorithms based on memory usage
@@ -43,7 +43,7 @@ plt.bar(
     label="Execution Time",
 )
 plt.bar(algorithms_sorted_exe_cpu, cpu_times_sorted, color="salmon", label="CPU Time")
-plt.title("Execution Time and CPU Time for Different Algorithms")
+plt.title("Execution Time and CPU Time")
 plt.xlabel("Algorithms")
 plt.ylabel("Time (s)")
 plt.legend()
@@ -51,7 +51,7 @@ plt.legend()
 # Plotting memory usage
 plt.subplot(1, 2, 2)
 plt.bar(algorithms_sorted_mem, memory_usage_sorted, color="green")
-plt.title("Memory Usage for Different Algorithms")
+plt.title("Memory Usage")
 plt.xlabel("Algorithms")
 plt.ylabel("Memory Usage (KB)")
 
@@ -67,7 +67,7 @@ plt.show()
 
 
 # Data
-algorithms = ["RSI_SAVGOL", "RSI_KAMA", "RSI_ZLEMA_KALMAN", "RSI_EMA", "RSI_SMA"]
+algorithms = ["RSI-SAVGOL", "RSI-KAMA", "RSI-KALMAN", "RSI-EMA", "RSI-SMA"]
 dropped_values = [28, 228, 346, 4143, 3126]
 
 # Sort algorithms based on the number of dropped values
@@ -103,7 +103,7 @@ plt.show()
 ##########################
 
 # Data
-algorithms = ["Savgol", "KAMA", "Kalman ZLEMA", "SMA", "EMA"]
+algorithms = ["RSI-SAVGOL", "RSI-KAMA", "RSI-KALMAN", "RSI-SMA", "RSI-EMA"]
 mad_values = [6.21, 9.63, 15.34, 14.48, 16.75]
 rmse_values = [9.05, 14.17, 19.71, 21.47, 24.53]
 
