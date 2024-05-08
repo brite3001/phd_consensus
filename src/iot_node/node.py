@@ -156,13 +156,6 @@ class Node:
                 self.received_messages[bm_hash] = message
                 self.vector_clock[bm_creator] += 1
 
-                # vc_int = sum(list(self.vector_clock.values()))
-                # if vc_int % self.call_committee_meeting_every_n_messages == 0:
-                #     round_num = int(
-                #         vc_int / self.call_committee_meeting_every_n_messages
-                #     )
-                #     await self.rank_nodes(round_num)
-
                 es = Response(
                     "EchoResponse",
                     str(bm_hash),
@@ -255,11 +248,6 @@ class Node:
                     )
                     # agg_msg_sig_check = bm.verify_aggregated_bls_signature()
                     agg_msg_sig_check = True
-
-                    # bm_vector_clock_int = sum(value for key, value in bm.vector_clock)
-                    # our_vector_clock_int = sum(
-                    #     value for key, value in self.vector_clock.items()
-                    # )
 
                     # acceptable_lag = (
                     #     True
@@ -431,6 +419,7 @@ class Node:
 
     async def batched_message_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
+        asyncio.create_task(self.batch_message_builder_job())
 
     async def batch_message_builder_job(self):
         if len(self.pending_gossips) >= 1:
@@ -481,33 +470,35 @@ class Node:
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 20:
             # filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
-            # filtered_zlema = savgol_filter(self.block_times, 14, 1)
+            filtered_zlema = savgol_filter(self.block_times, 14, 1)
             # filtered_zlema = [x for x in SMA(14, self.block_times) if x]
             # filtered_zlema = [x for x in EMA(14, self.block_times) if x]
-            filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
+            # filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
 
-            if len(filtered_zlema) >= 15:
-                # rsi = int(RSI(14, filtered_zlema)[-1])
-                rsi = TSI(3, 6, filtered_zlema)[-1]
+            self.my_logger.error(f"Congestion Control [{round(filtered_zlema[-1], 3)}]")
 
-                increase = random.uniform(1.01, 1.1)
+            # if len(filtered_zlema) >= 15:
+            #     # rsi = int(RSI(14, filtered_zlema)[-1])
+            #     rsi = TSI(3, 6, filtered_zlema)[-1]
 
-                dont_exceed_max_target = (
-                    self.current_latency * increase < self.max_gossip_timeout_time
-                )
+            #     increase = random.uniform(1.01, 1.1)
 
-                # Stops current_latency increase when network has low latency.
-                network_not_slow = (
-                    False if filtered_zlema[-1] < self.target_latency else True
-                )
+            #     dont_exceed_max_target = (
+            #         self.current_latency * increase < self.max_gossip_timeout_time
+            #     )
 
-                # TSI +30
-                if rsi > 30 and dont_exceed_max_target and network_not_slow:
-                    self.current_latency = round(self.current_latency * increase, 3)
-                    self.my_logger.error(
-                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
-                    )
-                    self.job_time_change_flag = True
+            #     # Stops current_latency increase when network has low latency.
+            #     network_not_slow = (
+            #         False if filtered_zlema[-1] < self.target_latency else True
+            #     )
+
+            #     # TSI +30
+            #     if rsi > 30 and dont_exceed_max_target and network_not_slow:
+            #         self.current_latency = round(self.current_latency * increase, 3)
+            #         self.my_logger.error(
+            #             f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
+            #         )
+            #         self.job_time_change_flag = True
 
     async def decrease_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
@@ -913,12 +904,12 @@ class Node:
 
         self.current_latency = self.target_latency
 
-        # Add the job to the scheduler, which triggers every 10 seconds
+        # # Add the job to the scheduler, which triggers every 10 seconds
         self.scheduler = AsyncIOScheduler()
-        job = self.scheduler.add_job(
-            self.batch_message_builder_job, trigger="interval", seconds=5
-        )
-        self.batched_message_job_id = job.id
+        # job = self.scheduler.add_job(
+        #     self.batch_message_builder_job, trigger="interval", seconds=5
+        # )
+        # self.batched_message_job_id = job.id
 
         job = self.scheduler.add_job(
             self.increasing_congestion_monitoring_job, trigger="interval", seconds=5
@@ -926,12 +917,12 @@ class Node:
 
         self.increase_job_id = job.id
 
-        job = self.scheduler.add_job(
-            self.decrease_congestion_monitoring_job, trigger="interval", seconds=10
-        )
+        # job = self.scheduler.add_job(
+        #     self.decrease_congestion_monitoring_job, trigger="interval", seconds=10
+        # )
 
-        self.decrease_job_id = job.id
+        # self.decrease_job_id = job.id
 
-        # Start the scheduler
+        # # Start the scheduler
         self.scheduler.start()
         self.my_logger.debug("Started Jobs")
