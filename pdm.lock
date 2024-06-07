@@ -5,7 +5,7 @@
 groups = ["default"]
 strategy = ["cross_platform"]
 lock_version = "4.4.1"
-content_hash = "sha256:0a3f43544132988635ceff3de23e74c4f459f30e0f84ba3845422a7034b1cfc4"
+content_hash = "sha256:ac67b870d478f1e31c950e2b49c8edcd16c52bf6f6a1743d78334dec3f4157bf"
 
 [[package]]
 name = "aiozmq"
@@ -341,6 +341,15 @@ files = [
     {file = "fonttools-4.48.1-cp312-cp312-win_amd64.whl", hash = "sha256:cdfd7557d1bd294a200bd211aa665ca3b02998dcc18f8211a5532da5b8fad5c5"},
     {file = "fonttools-4.48.1-py3-none-any.whl", hash = "sha256:e3e33862fc5261d46d9aae3544acb36203b1a337d00bdb5d3753aae50dac860e"},
     {file = "fonttools-4.48.1.tar.gz", hash = "sha256:8b8a45254218679c7f1127812761e7854ed5c8e34349aebf581e8c9204e7495a"},
+]
+
+[[package]]
+name = "ifaddr"
+version = "0.2.0"
+summary = "Cross-platform network interface and IP address enumeration library"
+files = [
+    {file = "ifaddr-0.2.0-py3-none-any.whl", hash = "sha256:085e0305cfe6f16ab12d72e2024030f5d52674afad6911bb1eee207177b8a748"},
+    {file = "ifaddr-0.2.0.tar.gz", hash = "sha256:cc0cbfcaabf765d44595825fb96a99bb12c79716b73b44330ea38ee2b0c4aed4"},
 ]
 
 [[package]]

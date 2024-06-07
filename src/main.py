@@ -7,6 +7,7 @@ import uvloop
 import random
 import time
 import os
+import ifaddr
 
 from iot_node.node import Node
 from iot_node.message_classes import Gossip
@@ -84,7 +85,7 @@ async def main():
     publisher_start = 21001
     nodes = []
     NUM_NODES = 10
-    transport_type = "IPC"
+    transport_type = "DOCKER"
 
     # at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
     # at2_config = AT2Configuration(7, 7, 7, 5, 6, 7)
@@ -123,6 +124,29 @@ async def main():
             )
             router_start += 1
             publisher_start += 1
+    elif transport_type == "DOCKER":
+        network_interface = "eth0"
+        adapters = ifaddr.get_adapters()
+
+        for adapter in adapters:
+            # print("IPs of network adapter " + adapter.nice_name)
+            for ip in adapter.ips:
+                if adapter.nice_name == network_interface and ip.is_IPv4:
+                    docker_ip = f"tcp://{str(ip.ip)}"
+            # print("   %s/%s" % (ip.ip, ip.network_prefix))
+        print("Docker environment detected")
+        print(f"Network interface {network_interface} has IP: {docker_ip}")
+
+        for i in range(NUM_NODES):
+            router_list.append(f"tcp://192.168.99.{2+i}:20001")
+
+        nodes.append(
+            Node(
+                router_bind=f"{docker_ip}:{20001}",
+                publisher_bind=f"{docker_ip}:{21001}",
+                at2_config=at2_config,
+            )
+        )
 
     else:
         logging.error("Check transport type")
@@ -132,7 +156,7 @@ async def main():
         await node.init_sockets()
         await node.start()
 
-    await asyncio.sleep(2.5)
+    await asyncio.sleep(5)
 
     logging.info("Running peer discovery...")
     for node in nodes:
@@ -141,18 +165,18 @@ async def main():
     # sub = SubscribeToPublisher("tcp://127.0.0.1:21001", "yolo")
     # n2.command(sub)
 
-    await asyncio.sleep(1)
+    await asyncio.sleep(60)
 
     n1 = nodes[0]
 
-    TEST_NAME = "tsi-kama"
+    TEST_NAME = "no-congestion-control"
     start_time = time.time()
 
     # ###########
     # # Fast    #
     # ###########
 
-    for i in range(2000):
+    for i in range(1000):
         print(f"Fast {i}")
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
@@ -165,7 +189,7 @@ async def main():
         n.command(gos)
         n.command(gos)
 
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(1.4)
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)
@@ -173,61 +197,61 @@ async def main():
 
     await asyncio.sleep(60)
 
-    for node in nodes:
-        node.scheduler.resume_job(node.increase_job_id)
-        node.scheduler.resume_job(node.decrease_job_id)
+    # for node in nodes:
+    #     node.scheduler.resume_job(node.increase_job_id)
+    #     node.scheduler.resume_job(node.decrease_job_id)
 
     ###########
     # Slow    #
     ###########
-    for i in range(1000):
-        print(f"Slow {i}")
-        gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
-        n = random.choice(nodes)
+    # for i in range(1000):
+    #     print(f"Slow {i}")
+    #     gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
+    #     n = random.choice(nodes)
 
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
 
-        await asyncio.sleep(1)
+    #     await asyncio.sleep(1)
 
-    for node in nodes:
-        node.scheduler.pause_job(node.increase_job_id)
-        node.scheduler.pause_job(node.decrease_job_id)
+    # for node in nodes:
+    #     node.scheduler.pause_job(node.increase_job_id)
+    #     node.scheduler.pause_job(node.decrease_job_id)
 
-    await asyncio.sleep(60)
+    # await asyncio.sleep(60)
 
-    for node in nodes:
-        node.scheduler.resume_job(node.increase_job_id)
-        node.scheduler.resume_job(node.decrease_job_id)
+    # for node in nodes:
+    #     node.scheduler.resume_job(node.increase_job_id)
+    #     node.scheduler.resume_job(node.decrease_job_id)
 
     ###########
     # Mixed   #
     ###########
-    for i in range(2000):
-        print(f"Mixed {i}")
-        gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
-        n = random.choice(nodes)
+    # for i in range(2000):
+    #     print(f"Mixed {i}")
+    #     gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
+    #     n = random.choice(nodes)
 
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
+    #     n.command(gos)
 
-        await asyncio.sleep(random.uniform(0.1, 1))
+    #     await asyncio.sleep(random.uniform(0.1, 1))
 
-    for node in nodes:
-        node.scheduler.pause_job(node.increase_job_id)
-        node.scheduler.pause_job(node.decrease_job_id)
+    # for node in nodes:
+    #     node.scheduler.pause_job(node.increase_job_id)
+    #     node.scheduler.pause_job(node.decrease_job_id)
 
-    await asyncio.sleep(60)
+    # await asyncio.sleep(60)
 
     end_time = time.time()
 
