@@ -84,7 +84,7 @@ async def main():
     router_start = 20001
     publisher_start = 21001
     nodes = []
-    NUM_NODES = 10
+    NUM_NODES = 5
     transport_type = "DOCKER"
 
     # at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
@@ -145,6 +145,7 @@ async def main():
                 router_bind=f"{docker_ip}:{20001}",
                 publisher_bind=f"{docker_ip}:{21001}",
                 at2_config=at2_config,
+                startup_ready=set(),
             )
         )
 
@@ -156,18 +157,21 @@ async def main():
         await node.init_sockets()
         await node.start()
 
-    await asyncio.sleep(5)
-
     logging.info("Running peer discovery...")
     for node in nodes:
-        await node.peer_discovery(deepcopy(router_list))
-
-    # sub = SubscribeToPublisher("tcp://127.0.0.1:21001", "yolo")
-    # n2.command(sub)
-
-    await asyncio.sleep(60)
+        asyncio.create_task(node.peer_discovery(deepcopy(router_list)))
 
     n1 = nodes[0]
+
+    # Wait for at least 1 node to be ready.
+    # Nodes only become ready once all their peers are ready
+    while len(n1.startup_ready) != len(router_list) - 1:
+        print(f"Not all nodes ready {len(n1.startup_ready)} / {len(router_list) -1} ")
+        await asyncio.sleep(1)
+
+    print(f"All nodes ready {len(n1.startup_ready)} / {len(router_list) -1} ")
+
+    print("MEOW!!!!!!!")
 
     TEST_NAME = "no-congestion-control"
     start_time = time.time()
@@ -177,19 +181,26 @@ async def main():
     # ###########
 
     for i in range(1000):
+        print("WOOF WOOF")
         print(f"Fast {i}")
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
 
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
+        if n1.router_bind == "tcp://192.168.99.2:20001":
+            n1.command(gos)
+            n1.command(gos)
+            n1.command(gos)
+            n1.command(gos)
+            n1.command(gos)
+            n1.command(gos)
+            n1.command(gos)
 
-        await asyncio.sleep(1.4)
+        print("BAAAAAAA")
+
+        # if n1.router_bind == "tcp://192.168.99.2:20001":
+        #     await n1.unsigned_publish({"message_type": "hello!!", "topic": "grr"})
+
+        await asyncio.sleep(10)
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)

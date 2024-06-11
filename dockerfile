@@ -1,27 +1,3 @@
-# FROM python:3.10
-
-# WORKDIR /code
-
-# # Copy files into the container
-# COPY logs.py /code/
-# COPY requirements.txt /code/
-# COPY start.py /code/
-
-# ADD tensorflow_lite /code/tensorflow_lite/
-# ADD helpers /code/helpers/
-# ADD outgoing_message_functions /code/outgoing_message_functions
-# ADD incoming_message_functions /code/incoming_message_functions
-# ADD event_loops /code/event_loops
-# ADD start_helpers /code/start_helpers
-
-# RUN mkdir -p /code/ipc/repreq/
-# RUN mkdir -p /code/ipc/pubsub/
-
-# RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
-
-
-# CMD ["python3", "/code/start.py"]
-
 FROM python:3.10
 
 WORKDIR /code

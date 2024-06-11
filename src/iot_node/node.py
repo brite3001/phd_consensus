@@ -90,6 +90,9 @@ class Node:
     id: str = field(init=False)
     my_logger = field(init=False)
 
+    # node startup synchronisation
+    startup_ready = field(factory=set)
+
     # Info about our peers
     peers: dict[str, PeerInformation] = field(factory=dict)  # str == ECDSA ID
     sockets: dict[str, PeerSocket] = field(factory=dict)  # str == ECDSA ID
@@ -156,12 +159,12 @@ class Node:
                 self.received_messages[bm_hash] = message
                 self.vector_clock[bm_creator] += 1
 
-                es = Response(
+                er = Response(
                     "EchoResponse",
                     str(bm_hash),
                     self._crypto_keys.ecdsa_public_key_tuple,
                 )
-                self.command(es)
+                self.command(er)
 
                 bm = message.become_sender(self._crypto_keys)
                 # regossip the message from the original creator, now with you as sender
@@ -171,12 +174,12 @@ class Node:
             if message.message_type == "EchoSubscribe":
                 if message.batched_messages_hash in self.received_messages:
                     # publish an echo_reply for that particular message hash
-                    es = Response(
+                    er = Response(
                         "EchoResponse",
                         message.batched_messages_hash,
                         self._crypto_keys.ecdsa_public_key_tuple,
                     )
-                    self.command(es)
+                    self.command(er)
                 else:
                     # if you haven't received the message yet, ignore
                     pass
@@ -198,7 +201,6 @@ class Node:
 
             req = await aiozmq.create_zmq_stream(zmq.REQ)
             await req.transport.connect(message.router_address)
-
             self.sockets[ecdsa_id] = PeerSocket(message.router_address, ecdsa_id, req)
         elif isinstance(message, DirectMessage):
             self.my_logger.info(message)
@@ -346,15 +348,15 @@ class Node:
                     self.my_logger.warning(
                         f"Signature check for message {message.topic} from {publisher} failed!!"
                     )
+            elif message["message_type"] == "Startup":
+                self.startup_ready.add(message["node_id"])
 
     ####################
     # Message Sending  #
     ####################
-    async def unsigned_publish(self, pub: PublishMessage):
-        message = json.dumps(asdict(pub)).encode()
-
-        self._publisher.write([pub.topic.encode(), message])
-        self.my_logger.info(f"Published Message {hash(pub)}")
+    async def unsigned_publish(self, pub: dict):
+        message = json.dumps(pub).encode()
+        self._publisher.write([pub["topic"].encode(), message])
 
     async def unsigned_direct_message(self, message: DirectMessage, receiver=""):
         assert issubclass(type(message), DirectMessage)
@@ -824,8 +826,57 @@ class Node:
 
         routers.remove(self.router_bind)
 
+        # Send the PD message to all peers
         for ip in routers:
             self.command(pd, ip)
+
+        while len(routers) != len(list(self.sockets.keys())):
+            self.my_logger.debug(
+                f"waiting for peer discovery... {len(list(self.sockets.keys()))} / {len(routers)}"
+            )
+            await asyncio.sleep(1)
+        self.my_logger.debug(
+            f"All peers discovered! {len(list(self.sockets.keys()))} / {len(routers)}"
+        )
+
+        print(routers)
+
+        print("aaaaaaa")
+
+        im_ready = {
+            "message_type": "Startup",
+            "topic": "Startup",
+            "node_id": self.router_bind,
+        }
+
+        for peer_id in list(self.peers.keys()):
+            s2p_ready = SubscribeToPublisher(peer_id, b"Startup")
+            self.command(s2p_ready)
+
+        print(self.peers)
+
+        print("bbbbbbbbb")
+
+        # wait for sockets to cache
+        while len(routers) != len(list(self.sockets.keys())):
+            asyncio.sleep(1)
+
+        print(self.sockets)
+
+        print("ccccccc")
+
+        asyncio.create_task(self.unsigned_publish(im_ready))
+        await asyncio.sleep(1)
+        # while len(routers) != len(self.startup_ready):
+        #     self.my_logger.debug("broadcasting ready")
+        #     asyncio.create_task(self.unsigned_publish(im_ready))
+        #     await asyncio.sleep(1)
+
+        print("ddddddd")
+
+        asyncio.create_task(self.unsigned_publish(im_ready))
+
+        print("FINISHED PEER DISCOVREY")
 
     async def subscribe(self, s2p: SubscribeToPublisher):
         # peer_id is a key from the self.peers dict
