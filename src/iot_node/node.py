@@ -95,10 +95,10 @@ class Node:
     # Threading and Async stuff
     thread = field(init=False)
     loop = field(factory=lambda: asyncio.new_event_loop())
+    open_sockets = field(factory=int)
 
     # Info about our peers
     peers: dict[str, PeerInformation] = field(factory=dict)  # str == ECDSA ID
-    sockets: dict[str, PeerSocket] = field(factory=dict)  # str == ECDSA ID
 
     # AIOZMQ Sockets
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
@@ -206,10 +206,6 @@ class Node:
 
             self.peers[ecdsa_id] = message
 
-            req = await aiozmq.create_zmq_stream(zmq.REQ)
-            await req.transport.connect(message.router_address)
-
-            self.sockets[ecdsa_id] = PeerSocket(message.router_address, ecdsa_id, req)
         elif isinstance(message, DirectMessage):
             self.my_logger.info(message)
 
@@ -369,35 +365,44 @@ class Node:
     async def unsigned_direct_message(self, message: DirectMessage, receiver=""):
         assert issubclass(type(message), DirectMessage)
 
-        if len(receiver) == 0:
-            peer_socket = random.choice(self.sockets)
-            req = peer_socket.socket
-        else:
-            req = await aiozmq.create_zmq_stream(zmq.REQ)
-            await req.transport.connect(receiver)
+        while self.open_sockets >= 5:
+            await asyncio.sleep(0.1)
+
+        self.open_sockets += 1
+
+        req = await aiozmq.create_zmq_stream(zmq.REQ)
+        await req.transport.connect(receiver)
 
         message = json.dumps(asdict(message)).encode()
 
-        async with self.rep_lock:
-            req.write([message])
-            await req.read()
+        req.write([message])
+        await req.read()
+
+        req.close()
+        self.open_sockets -= 1
 
     async def send_signed_batched_message(
         self,
         bm: BatchedMessages,
-        receiver="",
+        receiver,
     ):
         creator_sig = json.dumps(bm.sign_as_creator(self._crypto_keys)).encode()
         sender_sig = json.dumps(bm.sign_as_sender(self._crypto_keys)).encode()
 
         message = json.dumps(asdict(bm)).encode()
 
-        req_socket = self.sockets[receiver].socket
+        while self.open_sockets >= 5:
+            await asyncio.sleep(0.1)
 
-        # Allow access to this socket one message at a time
-        async with self.rep_lock:
-            req_socket.write([message, b"", creator_sig, b"", sender_sig])
-            await req_socket.read()
+        self.open_sockets += 1
+        req = await aiozmq.create_zmq_stream(zmq.REQ)
+        await req.transport.connect(self.peers[receiver].router_address)
+
+        req.write([message, b"", creator_sig, b"", sender_sig])
+        await req.read()
+
+        req.close()
+        self.open_sockets -= 1
 
     async def send_signed_message(self, message: Echo, receiver: str):
         # the receiver is an ECDSA ID
@@ -405,14 +410,22 @@ class Node:
 
         message = json.dumps(asdict(message)).encode()
 
-        req_socket = self.sockets[receiver].socket
+        while self.open_sockets >= 5:
+            await asyncio.sleep(0.1)
 
-        async with self.rep_lock:
-            req_socket.write([message, b"", message_sig])
-            resp = await req_socket.read()
+        self.open_sockets += 1
 
-            if resp[0] == b"ALREADY_RECEIVED" and isinstance(message, Echo):
-                self.already_received[message.batched_messages_hash].add(receiver)
+        req = await aiozmq.create_zmq_stream(zmq.REQ)
+        await req.transport.connect(self.peers[receiver].router_address)
+
+        req.write([message, b"", message_sig])
+        resp = await req.read()
+
+        if resp[0] == b"ALREADY_RECEIVED" and isinstance(message, Echo):
+            self.already_received[message.batched_messages_hash].add(receiver)
+
+        req.close()
+        self.open_sockets -= 1
 
     async def publish_signed_echo_response(self, to_publish: Response):
         message = json.dumps(asdict(to_publish)).encode()
@@ -916,6 +929,7 @@ class Node:
 
     async def start(self):
         print("grrr")
+        self.open_sockets = 0
         await self.init_sockets()
         self.running = True
         asyncio.create_task(self.router_listener())
