@@ -2,17 +2,19 @@ FROM python:3.10
 
 WORKDIR /code
 
-# copy code
+COPY pyproject.toml pdm.lock /code/
+
+# Install PDM
+RUN pip install pdm
+
+# Install dependencies
+RUN pdm install
+
+
 COPY src /code/src/
 
-# copy pdm stuff
-COPY .pdm-python /code/
-COPY pdm.lock /code/
-COPY pyproject.toml /code/
+# Set environment variable to disable output buffering
+ENV PYTHONUNBUFFERED=1
 
 
-RUN curl -sSL https://pdm-project.org/install-pdm.py | python3 -
-RUN export PATH=/root/.local/bin:$PATH
-RUN /root/.local/bin/pdm install
-
-CMD ["/root/.local/bin/pdm", "run", "src/main.py"]
+CMD ["pdm", "run", "src/main.py"]

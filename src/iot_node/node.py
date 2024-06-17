@@ -479,28 +479,28 @@ class Node:
 
             self.my_logger.error(f"Congestion Control [{round(filtered_zlema[-1], 3)}]")
 
-            # if len(filtered_zlema) >= 15:
-            #     # rsi = int(RSI(14, filtered_zlema)[-1])
-            #     rsi = TSI(3, 6, filtered_zlema)[-1]
+            if len(filtered_zlema) >= 15:
+                rsi = int(RSI(14, filtered_zlema)[-1])
+                # rsi = TSI(3, 6, filtered_zlema)[-1]
 
-            #     increase = random.uniform(1.01, 1.1)
+                increase = random.uniform(1.01, 1.1)
 
-            #     dont_exceed_max_target = (
-            #         self.current_latency * increase < self.max_gossip_timeout_time
-            #     )
+                dont_exceed_max_target = (
+                    self.current_latency * increase < self.max_gossip_timeout_time
+                )
 
-            #     # Stops current_latency increase when network has low latency.
-            #     network_not_slow = (
-            #         False if filtered_zlema[-1] < self.target_latency else True
-            #     )
+                # Stops current_latency increase when network has low latency.
+                network_not_slow = (
+                    False if filtered_zlema[-1] < self.target_latency else True
+                )
 
-            #     # TSI +30
-            #     if rsi > 30 and dont_exceed_max_target and network_not_slow:
-            #         self.current_latency = round(self.current_latency * increase, 3)
-            #         self.my_logger.error(
-            #             f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
-            #         )
-            #         self.job_time_change_flag = True
+                # TSI +30
+                if rsi > 70 and dont_exceed_max_target and network_not_slow:
+                    self.current_latency = round(self.current_latency * increase, 3)
+                    self.my_logger.error(
+                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
+                    )
+                    self.job_time_change_flag = True
 
     async def decrease_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
@@ -508,14 +508,14 @@ class Node:
         # Increase the block time if we start overshooting the target
         if len(self.block_times) >= 45:
             # filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
-            # filtered_zlema = savgol_filter(self.block_times, 21, 1)
+            filtered_zlema = savgol_filter(self.block_times, 21, 1)
             # filtered_zlema = [x for x in SMA(22, self.block_times) if x]
             # filtered_zlema = [x for x in EMA(21, self.block_times) if x]
-            filtered_zlema = [x for x in KAMA(21, 2, 30, self.block_times) if x]
+            # filtered_zlema = [x for x in KAMA(21, 2, 30, self.block_times) if x]
 
             if len(filtered_zlema) >= 21:
-                # rsi = int(RSI(21, filtered_zlema)[-1])
-                rsi = TSI(9, 15, filtered_zlema)[-1]
+                rsi = int(RSI(21, filtered_zlema)[-1])
+                # rsi = TSI(9, 15, filtered_zlema)[-1]
 
                 decrease = random.uniform(0.9, 0.99)
 
@@ -524,7 +524,7 @@ class Node:
                 # )
 
                 # TSI -30
-                if rsi < -30:
+                if rsi < 30:
                     self.current_latency = round(self.current_latency * decrease, 3)
 
                     self.my_logger.error(
@@ -734,6 +734,7 @@ class Node:
     # Node Message Bus #
     ####################
     def command(self, command_obj, receiver=""):
+        self.my_logger.info(command_obj)
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
         elif isinstance(command_obj, Gossip):
@@ -830,54 +831,6 @@ class Node:
         for ip in routers:
             self.command(pd, ip)
 
-        while len(routers) != len(list(self.sockets.keys())):
-            self.my_logger.debug(
-                f"waiting for peer discovery... {len(list(self.sockets.keys()))} / {len(routers)}"
-            )
-            await asyncio.sleep(1)
-        self.my_logger.debug(
-            f"All peers discovered! {len(list(self.sockets.keys()))} / {len(routers)}"
-        )
-
-        print(routers)
-
-        print("aaaaaaa")
-
-        im_ready = {
-            "message_type": "Startup",
-            "topic": "Startup",
-            "node_id": self.router_bind,
-        }
-
-        for peer_id in list(self.peers.keys()):
-            s2p_ready = SubscribeToPublisher(peer_id, b"Startup")
-            self.command(s2p_ready)
-
-        print(self.peers)
-
-        print("bbbbbbbbb")
-
-        # wait for sockets to cache
-        while len(routers) != len(list(self.sockets.keys())):
-            asyncio.sleep(1)
-
-        print(self.sockets)
-
-        print("ccccccc")
-
-        asyncio.create_task(self.unsigned_publish(im_ready))
-        await asyncio.sleep(1)
-        # while len(routers) != len(self.startup_ready):
-        #     self.my_logger.debug("broadcasting ready")
-        #     asyncio.create_task(self.unsigned_publish(im_ready))
-        #     await asyncio.sleep(1)
-
-        print("ddddddd")
-
-        asyncio.create_task(self.unsigned_publish(im_ready))
-
-        print("FINISHED PEER DISCOVREY")
-
     async def subscribe(self, s2p: SubscribeToPublisher):
         # peer_id is a key from the self.peers dict
 
@@ -957,10 +910,10 @@ class Node:
 
         # # Add the job to the scheduler, which triggers every 10 seconds
         self.scheduler = AsyncIOScheduler()
-        # job = self.scheduler.add_job(
-        #     self.batch_message_builder_job, trigger="interval", seconds=5
-        # )
-        # self.batched_message_job_id = job.id
+        job = self.scheduler.add_job(
+            self.batch_message_builder_job, trigger="interval", seconds=5
+        )
+        self.batched_message_job_id = job.id
 
         job = self.scheduler.add_job(
             self.increasing_congestion_monitoring_job, trigger="interval", seconds=5
@@ -968,11 +921,11 @@ class Node:
 
         self.increase_job_id = job.id
 
-        # job = self.scheduler.add_job(
-        #     self.decrease_congestion_monitoring_job, trigger="interval", seconds=10
-        # )
+        job = self.scheduler.add_job(
+            self.decrease_congestion_monitoring_job, trigger="interval", seconds=10
+        )
 
-        # self.decrease_job_id = job.id
+        self.decrease_job_id = job.id
 
         # # Start the scheduler
         self.scheduler.start()
