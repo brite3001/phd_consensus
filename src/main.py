@@ -7,6 +7,8 @@ import uvloop
 import random
 import time
 import os
+import concurrent.futures
+import threading
 
 from iot_node.node import Node
 from iot_node.message_classes import Gossip
@@ -79,7 +81,18 @@ def create_folder_structure(folder_path):
         print(f"An error occurred while creating folder '{folder_path}': {e}")
 
 
-async def main():
+# Function to run a node in a separate thread
+def run_node_in_thread(node):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(node.start())
+    finally:
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
+
+
+def main():
     router_start = 20001
     publisher_start = 21001
     nodes = []
@@ -102,6 +115,7 @@ async def main():
                     router_bind=f"tcp://127.0.0.1:{router_start}",
                     publisher_bind=f"tcp://127.0.0.1:{publisher_start}",
                     at2_config=at2_config,
+                    router_list=router_list,
                 )
             )
             router_start += 1
@@ -119,6 +133,7 @@ async def main():
                     router_bind=f"ipc://router/{router_start}",
                     publisher_bind=f"ipc://publisher/{publisher_start}",
                     at2_config=at2_config,
+                    router_list=deepcopy(router_list),
                 )
             )
             router_start += 1
@@ -127,21 +142,29 @@ async def main():
     else:
         logging.error("Check transport type")
 
-    logging.info("Spinning up nodes...")
-    for node in nodes:
-        await node.init_sockets()
-        await node.start()
+    # logging.info("Spinning up nodes...")
+    # for node in nodes:
+    #     await node.init_sockets()
+    #     await node.start()
 
-    await asyncio.sleep(2.5)
+    # await asyncio.sleep(2.5)
 
-    logging.info("Running peer discovery...")
-    for node in nodes:
-        await node.peer_discovery(deepcopy(router_list))
+    # logging.info("Running peer discovery...")
+    # for node in nodes:
+    #     await node.peer_discovery()
 
-    # sub = SubscribeToPublisher("tcp://127.0.0.1:21001", "yolo")
-    # n2.command(sub)
+    # await asyncio.sleep(1)
 
-    await asyncio.sleep(1)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(nodes)) as executor:
+        futures = [executor.submit(run_node_in_thread, node) for node in nodes]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                print("ra")
+                future.result()
+            except Exception as e:
+                print(f"Exception: {e}")
+
+    time.sleep(10)
 
     n1 = nodes[0]
 
@@ -157,21 +180,21 @@ async def main():
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
 
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
-        n.command(gos)
+        # n.command(gos)
+        # n.command(gos)
+        # n.command(gos)
+        # n.command(gos)
+        # n.command(gos)
+        # n.command(gos)
+        # n.command(gos)
 
-        await asyncio.sleep(0.25)
+        time.sleep(0.25)
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)
         node.scheduler.pause_job(node.decrease_job_id)
 
-    await asyncio.sleep(60)
+    time.sleep(60)
 
     for node in nodes:
         node.scheduler.resume_job(node.increase_job_id)
@@ -193,13 +216,13 @@ async def main():
         n.command(gos)
         n.command(gos)
 
-        await asyncio.sleep(1)
+        time.sleep(1)
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)
         node.scheduler.pause_job(node.decrease_job_id)
 
-    await asyncio.sleep(60)
+    time.sleep(60)
 
     for node in nodes:
         node.scheduler.resume_job(node.increase_job_id)
@@ -221,13 +244,13 @@ async def main():
         n.command(gos)
         n.command(gos)
 
-        await asyncio.sleep(random.uniform(0.1, 1))
+        time.sleep(random.uniform(0.1, 1))
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)
         node.scheduler.pause_job(node.decrease_job_id)
 
-    await asyncio.sleep(60)
+    time.sleep(60)
 
     end_time = time.time()
 
@@ -269,30 +292,31 @@ async def main():
     print("**********************************")
 
 
-async def shutdown(signal, loop):
-    logging.info(f"Received exit signal {signal.name}...")
+# async def shutdown(signal, loop):
+#     logging.info(f"Received exit signal {signal.name}...")
 
-    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+#     tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
 
-    for task in tasks:
-        task.cancel()
+#     for task in tasks:
+#         task.cancel()
 
-    logging.info("Cancelling outstanding tasks")
-    await asyncio.gather(*tasks, return_exceptions=True)
-    loop.stop()
+#     logging.info("Cancelling outstanding tasks")
+#     await asyncio.gather(*tasks, return_exceptions=True)
+#     loop.stop()
 
 
 if __name__ == "__main__":
-    loop = uvloop.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # loop = uvloop.new_event_loop()
+    # asyncio.set_event_loop(loop)
 
-    signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
-    for s in signals:
-        loop.add_signal_handler(s, lambda s=s: asyncio.create_task(shutdown(s, loop)))
+    # signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+    # for s in signals:
+    #     loop.add_signal_handler(s, lambda s=s: asyncio.create_task(shutdown(s, loop)))
 
-    try:
-        loop.create_task(main())
-        loop.run_forever()
-    finally:
-        logging.info("Successfully shutdown service")
-        loop.close()
+    # try:
+    #     loop.create_task(main())
+    #     loop.run_forever()
+    # finally:
+    #     logging.info("Successfully shutdown service")
+    #     loop.close()
+    main()

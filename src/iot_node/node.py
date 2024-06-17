@@ -17,6 +17,7 @@ import secrets
 import random
 import time
 import math
+import threading
 
 from .message_classes import DirectMessage
 from .message_classes import PublishMessage
@@ -87,8 +88,13 @@ class Node:
     at2_config: AT2Configuration = field(
         validator=[validators.instance_of(AT2Configuration)]
     )
+    router_list: str = field(validator=[validators.instance_of(list)])
     id: str = field(init=False)
     my_logger = field(init=False)
+
+    # Threading and Async stuff
+    thread = field(init=False)
+    loop = field(factory=lambda: asyncio.new_event_loop())
 
     # Info about our peers
     peers: dict[str, PeerInformation] = field(factory=dict)  # str == ECDSA ID
@@ -141,6 +147,10 @@ class Node:
     delivered_gossips: int = field(factory=int)
     sent_msg_metadata: list = field(factory=list)
     received_msg_metadata: list = field(factory=list)
+
+    def __attrs_post_init__(self):
+        self.thread = threading.Thread(target=self.event_loop)
+        self.thread.start()
 
     ####################
     # Inbox            #
@@ -419,7 +429,7 @@ class Node:
 
     async def batched_message_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
-        asyncio.create_task(self.batch_message_builder_job())
+        # asyncio.create_task(self.batch_message_builder_job())
 
     async def batch_message_builder_job(self):
         if len(self.pending_gossips) >= 1:
@@ -477,28 +487,28 @@ class Node:
 
             self.my_logger.error(f"Congestion Control [{round(filtered_zlema[-1], 3)}]")
 
-            # if len(filtered_zlema) >= 15:
-            #     # rsi = int(RSI(14, filtered_zlema)[-1])
-            #     rsi = TSI(3, 6, filtered_zlema)[-1]
+            if len(filtered_zlema) >= 15:
+                # rsi = int(RSI(14, filtered_zlema)[-1])
+                rsi = TSI(3, 6, filtered_zlema)[-1]
 
-            #     increase = random.uniform(1.01, 1.1)
+                increase = random.uniform(1.01, 1.1)
 
-            #     dont_exceed_max_target = (
-            #         self.current_latency * increase < self.max_gossip_timeout_time
-            #     )
+                dont_exceed_max_target = (
+                    self.current_latency * increase < self.max_gossip_timeout_time
+                )
 
-            #     # Stops current_latency increase when network has low latency.
-            #     network_not_slow = (
-            #         False if filtered_zlema[-1] < self.target_latency else True
-            #     )
+                # Stops current_latency increase when network has low latency.
+                network_not_slow = (
+                    False if filtered_zlema[-1] < self.target_latency else True
+                )
 
-            #     # TSI +30
-            #     if rsi > 30 and dont_exceed_max_target and network_not_slow:
-            #         self.current_latency = round(self.current_latency * increase, 3)
-            #         self.my_logger.error(
-            #             f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
-            #         )
-            #         self.job_time_change_flag = True
+                # TSI +30
+                if rsi > 30 and dont_exceed_max_target and network_not_slow:
+                    self.current_latency = round(self.current_latency * increase, 3)
+                    self.my_logger.error(
+                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
+                    )
+                    self.job_time_change_flag = True
 
     async def decrease_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
@@ -813,7 +823,7 @@ class Node:
         # return as base64 for easier serialisation
         return base64.b64encode(agg_sig).decode("utf-8")
 
-    async def peer_discovery(self, routers: list):
+    async def peer_discovery(self):
         pd = PeerDiscovery(
             message_type="PeerDiscovery",
             bls_public_key=self._crypto_keys.bls_public_key,
@@ -822,9 +832,9 @@ class Node:
             publisher_address=self.publisher_bind,
         )
 
-        routers.remove(self.router_bind)
+        self.router_list.remove(self.router_bind)
 
-        for ip in routers:
+        for ip in self.router_list:
             self.command(pd, ip)
 
     async def subscribe(self, s2p: SubscribeToPublisher):
@@ -893,8 +903,20 @@ class Node:
         self._publisher.close()
         self._subscriber.close()
         self._router.close()
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        self.thread.join()
+
+    def event_loop(self):
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_forever()
+        finally:
+            self.loop.run_until_complete(self.loop.shutdown_asyncgens())
+            self.loop.close()
 
     async def start(self):
+        print("grrr")
+        await self.init_sockets()
         self.running = True
         asyncio.create_task(self.router_listener())
         asyncio.create_task(self.subscriber_listener())
@@ -906,10 +928,10 @@ class Node:
 
         # # Add the job to the scheduler, which triggers every 10 seconds
         self.scheduler = AsyncIOScheduler()
-        # job = self.scheduler.add_job(
-        #     self.batch_message_builder_job, trigger="interval", seconds=5
-        # )
-        # self.batched_message_job_id = job.id
+        job = self.scheduler.add_job(
+            self.batch_message_builder_job, trigger="interval", seconds=5
+        )
+        self.batched_message_job_id = job.id
 
         job = self.scheduler.add_job(
             self.increasing_congestion_monitoring_job, trigger="interval", seconds=5
@@ -917,12 +939,31 @@ class Node:
 
         self.increase_job_id = job.id
 
-        # job = self.scheduler.add_job(
-        #     self.decrease_congestion_monitoring_job, trigger="interval", seconds=10
-        # )
+        job = self.scheduler.add_job(
+            self.decrease_congestion_monitoring_job, trigger="interval", seconds=10
+        )
 
-        # self.decrease_job_id = job.id
+        self.decrease_job_id = job.id
+
+        print("mewww")
 
         # # Start the scheduler
         self.scheduler.start()
         self.my_logger.debug("Started Jobs")
+
+        await asyncio.sleep(2.5)
+
+        await self.peer_discovery()
+
+        await asyncio.sleep(2)
+
+        for _ in range(100):
+            gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
+            self.command(gos)
+            self.command(gos)
+            self.command(gos)
+            self.command(gos)
+            self.command(gos)
+            self.command(gos)
+            self.command(gos)
+            await asyncio.sleep(random.randint(5, 10))
