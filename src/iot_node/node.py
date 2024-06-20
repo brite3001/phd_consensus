@@ -816,7 +816,7 @@ class Node:
         # return as base64 for easier serialisation
         return base64.b64encode(agg_sig).decode("utf-8")
 
-    async def peer_discovery(self, routers: list):
+    def peer_discovery(self, routers: list):
         pd = PeerDiscovery(
             message_type="PeerDiscovery",
             bls_public_key=self._crypto_keys.bls_public_key,
@@ -934,3 +934,5 @@ class Node:
         # # Start the scheduler
         self.scheduler.start()
         self.my_logger.debug("Started Jobs")
+
+        self.my_logger.error("READY!!")

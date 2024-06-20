@@ -25,7 +25,7 @@ def get_node_port():
 
 async def main():
     nodes = []
-    NUM_NODES = 10
+    NUM_NODES = 50
 
     # at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
     # at2_config = AT2Configuration(7, 7, 7, 5, 6, 7)
@@ -52,9 +52,13 @@ async def main():
         await node.init_sockets()
         await node.start()
 
+    await asyncio.sleep(0.5 * NUM_NODES)
+
     logging.warning("Running peer discovery...")
     for node in nodes:
-        asyncio.create_task(node.peer_discovery(deepcopy(router_list)))
+        node.peer_discovery(router_list)
+
+    await asyncio.sleep(0.5 * NUM_NODES)
 
     n1 = nodes[0]
 
@@ -64,6 +68,7 @@ async def main():
         logging.warning(
             f"Not all nodes ready {len(list(n1.sockets.keys()))} / {len(router_list)} "
         )
+
         await asyncio.sleep(1)
 
     logging.warning(
@@ -78,8 +83,8 @@ async def main():
 
     for i in range(2000):
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
-        # if n1.router_bind == "tcp://127.0.0.1:20001":
-        if random.randint(1, 10) == 5:
+        if n1.router_bind == "tcp://127.0.0.1:20001":
+            # if random.randint(1, 10) == 5:
             logging.error(f"Fast {i}")
             n1.command(gos)
             n1.command(gos)
@@ -89,7 +94,7 @@ async def main():
             n1.command(gos)
             n1.command(gos)
 
-        await asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)
