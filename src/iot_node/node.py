@@ -90,9 +90,6 @@ class Node:
     id: str = field(init=False)
     my_logger = field(init=False)
 
-    # node startup synchronisation
-    startup_ready = field(factory=set)
-
     # Info about our peers
     peers: dict[str, PeerInformation] = field(factory=dict)  # str == ECDSA ID
     sockets: dict[str, PeerSocket] = field(factory=dict)  # str == ECDSA ID
@@ -202,6 +199,9 @@ class Node:
             req = await aiozmq.create_zmq_stream(zmq.REQ)
             await req.transport.connect(message.router_address)
             self.sockets[ecdsa_id] = PeerSocket(message.router_address, ecdsa_id, req)
+
+            s2p = SubscribeToPublisher(ecdsa_id, b"test")
+            self.command(s2p)
         elif isinstance(message, DirectMessage):
             self.my_logger.info(message)
 
@@ -320,6 +320,7 @@ class Node:
             # topic is recv[0]
             message = recv[1]
             message = json.loads(message.decode())
+
             if message["message_type"] == "EchoResponse":
                 message = Response(**message)
                 echo_sig = json.loads(recv[2].decode())
@@ -348,15 +349,16 @@ class Node:
                     self.my_logger.warning(
                         f"Signature check for message {message.topic} from {publisher} failed!!"
                     )
-            elif message["message_type"] == "Startup":
-                self.startup_ready.add(message["node_id"])
+            else:
+                self.my_logger.error(f"Received unrecognised message: {message}")
 
     ####################
     # Message Sending  #
     ####################
     async def unsigned_publish(self, pub: dict):
-        message = json.dumps(pub).encode()
-        self._publisher.write([pub["topic"].encode(), message])
+        message = json.dumps(asdict(pub)).encode()
+
+        self._publisher.write([pub.topic.encode(), message])
 
     async def unsigned_direct_message(self, message: DirectMessage, receiver=""):
         assert issubclass(type(message), DirectMessage)
@@ -539,6 +541,13 @@ class Node:
     # AT2 starts here
     async def gossip(self, bm: BatchedMessages):
         batched_message_hash = str(hash(bm))
+        self.my_logger.warning(f"Sending the BM: {(hash(bm))}")
+        self.my_logger.warning(f"Sending the BM: {hash(bm.get_creator_bytes())}")
+        self.my_logger.warning(bm.get_creator_bytes())
+        self.my_logger.error(hash("12345"))
+
+        print(bm)
+
         i_am_message_creator = (
             True
             if self._crypto_keys.ecdsa_tuple_to_id(bm.creator_ecdsa) == self.id
@@ -555,16 +564,6 @@ class Node:
             s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
             self.command(s2p)
 
-        # Step 3
-        es = Echo(
-            "EchoSubscribe",
-            batched_message_hash,
-            self._crypto_keys.ecdsa_public_key_tuple,
-        )
-
-        for peer_id in echo_subscribe:
-            self.command(es, peer_id)
-
         # Step 4
         ready_subscribe = self.select_nodes(
             self.node_selection_type, self.at2_config.ready_sample_size
@@ -574,6 +573,18 @@ class Node:
         for peer_id in ready_subscribe:
             s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
             self.command(s2p)
+
+        await asyncio.sleep(5)
+
+        # Step 3
+        es = Echo(
+            "EchoSubscribe",
+            batched_message_hash,
+            self._crypto_keys.ecdsa_public_key_tuple,
+        )
+
+        for peer_id in echo_subscribe:
+            self.command(es, peer_id)
 
         # Step 6
         rs = Echo(
@@ -734,7 +745,6 @@ class Node:
     # Node Message Bus #
     ####################
     def command(self, command_obj, receiver=""):
-        self.my_logger.info(command_obj)
         if isinstance(command_obj, SubscribeToPublisher):
             asyncio.create_task(self.subscribe(command_obj))
         elif isinstance(command_obj, Gossip):
@@ -825,29 +835,34 @@ class Node:
             publisher_address=self.publisher_bind,
         )
 
-        routers.remove(self.router_bind)
-
         # Send the PD message to all peers
         for ip in routers:
             self.command(pd, ip)
+
+    async def connect_to_subscribers(self):
+        for peer in self.peers:
+            addr = self.peers[peer].publisher_address
+            self._subscriber.transport.connect(addr)
 
     async def subscribe(self, s2p: SubscribeToPublisher):
         # peer_id is a key from the self.peers dict
 
         # Don't resubscribe to the same ip twice, or else things break
-        if s2p.peer_id not in self.connected_subscribers:
-            self._subscriber.transport.connect(
-                self.peers[s2p.peer_id].publisher_address
-            )
-            self.connected_subscribers.add(s2p.peer_id)
-            self.my_logger.debug(
-                f"Connected to publisher: {self.peers[s2p.peer_id].publisher_address}"
-            )
+        # if s2p.peer_id not in self.connected_subscribers:
+        #     self._subscriber.transport.connect(
+        #         self.peers[s2p.peer_id].publisher_address
+        #     )
+        #     self.connected_subscribers.add(s2p.peer_id)
+        #     self.my_logger.debug(
+        #         f"Connected to publisher: {self.peers[s2p.peer_id].publisher_address}"
+        #     )
+
+        #     self.subscribed_topics.add(b"test")
 
         if s2p.topic not in self.subscribed_topics:
             self._subscriber.transport.subscribe(s2p.topic)
             self.subscribed_topics.add(s2p.topic)
-            self.my_logger.debug(f"Subscribed to: {s2p.topic}")
+            self.my_logger.warning(f"Subscribed to: {s2p.topic}")
 
     async def unsubscribe(self, unsub: UnsubscribeFromTopic):
         if unsub.topic in self.subscribed_topics:
@@ -857,10 +872,16 @@ class Node:
     async def init_sockets(self):
         self._subscriber = await aiozmq.create_zmq_stream(zmq.SUB)
 
+        import os
+
+        node_port = int(os.getenv("NODE_ID"))
+
         self._publisher = await aiozmq.create_zmq_stream(
-            zmq.PUB, bind=self.publisher_bind
+            zmq.PUB, bind=f"tcp://*:{21001 + node_port}"
         )
-        self._router = await aiozmq.create_zmq_stream(zmq.ROUTER, bind=self.router_bind)
+        self._router = await aiozmq.create_zmq_stream(
+            zmq.ROUTER, bind=f"tcp://*:{20001 + node_port}"
+        )
 
         ecdsa_private_key = keys.gen_private_key(curve.P256)
         ecdsa_public_key = keys.get_public_key(ecdsa_private_key, curve.P256)
