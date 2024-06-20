@@ -845,7 +845,7 @@ class Node:
         if s2p.topic not in self.subscribed_topics:
             self._subscriber.transport.subscribe(s2p.topic)
             self.subscribed_topics.add(s2p.topic)
-            self.my_logger.warning(f"Subscribed to: {s2p.topic}")
+            self.my_logger.debug(f"Subscribed to: {s2p.topic}")
 
     async def unsubscribe(self, unsub: UnsubscribeFromTopic):
         if unsub.topic in self.subscribed_topics:

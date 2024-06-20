@@ -23,6 +23,6 @@ def get_logger(id: str, json=False):
     stdout.setFormatter(fmt)
     logger.addHandler(stdout)
 
-    logger.setLevel(logging.WARNING)
+    logger.setLevel(logging.ERROR)
 
     return logger

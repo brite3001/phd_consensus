@@ -76,12 +76,11 @@ async def main():
     # # Fast    #
     # ###########
 
-    for i in range(1000):
+    for i in range(2000):
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
-
-        if n1.router_bind == "tcp://127.0.0.1:20001":
-            print("only I am allowed to send BMs")
-            logging.info(f"Fast {i}")
+        # if n1.router_bind == "tcp://127.0.0.1:20001":
+        if random.randint(1, 10) == 5:
+            logging.error(f"Fast {i}")
             n1.command(gos)
             n1.command(gos)
             n1.command(gos)
@@ -90,7 +89,7 @@ async def main():
             n1.command(gos)
             n1.command(gos)
 
-        await asyncio.sleep(10)
+        await asyncio.sleep(0.5)
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)
