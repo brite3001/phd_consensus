@@ -200,8 +200,6 @@ class Node:
             await req.transport.connect(message.router_address)
             self.sockets[ecdsa_id] = PeerSocket(message.router_address, ecdsa_id, req)
 
-            s2p = SubscribeToPublisher(ecdsa_id, b"test")
-            self.command(s2p)
         elif isinstance(message, DirectMessage):
             self.my_logger.info(message)
 
@@ -541,12 +539,6 @@ class Node:
     # AT2 starts here
     async def gossip(self, bm: BatchedMessages):
         batched_message_hash = str(hash(bm))
-        self.my_logger.warning(f"Sending the BM: {(hash(bm))}")
-        self.my_logger.warning(f"Sending the BM: {hash(bm.get_creator_bytes())}")
-        self.my_logger.warning(bm.get_creator_bytes())
-        self.my_logger.error(hash("12345"))
-
-        print(bm)
 
         i_am_message_creator = (
             True
@@ -564,6 +556,13 @@ class Node:
             s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
             self.command(s2p)
 
+        # Step 3
+        es = Echo(
+            "EchoSubscribe",
+            batched_message_hash,
+            self._crypto_keys.ecdsa_public_key_tuple,
+        )
+
         # Step 4
         ready_subscribe = self.select_nodes(
             self.node_selection_type, self.at2_config.ready_sample_size
@@ -573,15 +572,6 @@ class Node:
         for peer_id in ready_subscribe:
             s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
             self.command(s2p)
-
-        await asyncio.sleep(5)
-
-        # Step 3
-        es = Echo(
-            "EchoSubscribe",
-            batched_message_hash,
-            self._crypto_keys.ecdsa_public_key_tuple,
-        )
 
         for peer_id in echo_subscribe:
             self.command(es, peer_id)
@@ -839,25 +829,18 @@ class Node:
         for ip in routers:
             self.command(pd, ip)
 
-    async def connect_to_subscribers(self):
-        for peer in self.peers:
-            addr = self.peers[peer].publisher_address
-            self._subscriber.transport.connect(addr)
-
     async def subscribe(self, s2p: SubscribeToPublisher):
         # peer_id is a key from the self.peers dict
 
         # Don't resubscribe to the same ip twice, or else things break
-        # if s2p.peer_id not in self.connected_subscribers:
-        #     self._subscriber.transport.connect(
-        #         self.peers[s2p.peer_id].publisher_address
-        #     )
-        #     self.connected_subscribers.add(s2p.peer_id)
-        #     self.my_logger.debug(
-        #         f"Connected to publisher: {self.peers[s2p.peer_id].publisher_address}"
-        #     )
-
-        #     self.subscribed_topics.add(b"test")
+        if s2p.peer_id not in self.connected_subscribers:
+            self._subscriber.transport.connect(
+                self.peers[s2p.peer_id].publisher_address
+            )
+            self.connected_subscribers.add(s2p.peer_id)
+            self.my_logger.debug(
+                f"Connected to publisher: {self.peers[s2p.peer_id].publisher_address}"
+            )
 
         if s2p.topic not in self.subscribed_topics:
             self._subscriber.transport.subscribe(s2p.topic)

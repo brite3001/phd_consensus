@@ -16,5 +16,8 @@ COPY src /code/src/
 # Set environment variable to disable output buffering
 ENV PYTHONUNBUFFERED=1
 
+# STOPS HASH FUNCTION FROM BEING RANDOM
+ENV PYTHONHASHSEED=0
+
 
 CMD ["pdm", "run", "src/main.py"]

@@ -139,8 +139,7 @@ class BatchedMessages:
             + str(sum(value for key, value in self.vector_clock))
         )
 
-        # return creator_bytes.encode()
-        return "aaaaa".encode()
+        return creator_bytes.encode()
 
     def get_sender_bytes(self) -> bytes:
         sender_bytes = (

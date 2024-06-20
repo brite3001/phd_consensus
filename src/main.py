@@ -47,12 +47,12 @@ async def main():
         )
     )
 
-    logging.info("Spinning up nodes...")
+    logging.warning("Spinning up nodes...")
     for node in nodes:
         await node.init_sockets()
         await node.start()
 
-    logging.info("Running peer discovery...")
+    logging.warning("Running peer discovery...")
     for node in nodes:
         asyncio.create_task(node.peer_discovery(deepcopy(router_list)))
 
@@ -61,18 +61,16 @@ async def main():
     # Wait for at least 1 node to be ready.
     # Nodes only become ready once all their peers are ready
     while len(list(n1.sockets.keys())) != len(router_list):
-        logging.info(
+        logging.warning(
             f"Not all nodes ready {len(list(n1.sockets.keys()))} / {len(router_list)} "
         )
         await asyncio.sleep(1)
 
-    logging.info(
+    logging.warning(
         f"All nodes ready {len(list(n1.sockets.keys()))} / {len(router_list)} "
     )
 
     await asyncio.sleep(5)
-
-    await n1.connect_to_subscribers()
 
     # ###########
     # # Fast    #
@@ -80,7 +78,6 @@ async def main():
 
     for i in range(1000):
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
-        pm = PublishMessage("rawrrawr", "test")
 
         if n1.router_bind == "tcp://127.0.0.1:20001":
             print("only I am allowed to send BMs")
