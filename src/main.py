@@ -33,11 +33,11 @@ async def main():
 
     my_node_id = get_node_port()
 
-    router_list = []
+    publisher_list = []
 
     for i in range(NUM_NODES):
         if i != my_node_id:
-            router_list.append(f"tcp://127.0.0.1:{20001+i}")
+            publisher_list.append(f"tcp://127.0.0.1:{21001+i}")
 
     nodes.append(
         Node(
@@ -56,7 +56,7 @@ async def main():
 
     logging.warning("Running peer discovery...")
     for node in nodes:
-        node.peer_discovery(router_list)
+        await node.peer_discovery(deepcopy(publisher_list))
 
     await asyncio.sleep(0.5 * NUM_NODES)
 
@@ -64,16 +64,16 @@ async def main():
 
     # Wait for at least 1 node to be ready.
     # Nodes only become ready once all their peers are ready
-    while len(list(n1.sockets.keys())) != len(router_list):
-        logging.warning(
-            f"Not all nodes ready {len(list(n1.sockets.keys()))} / {len(router_list)} "
-        )
+    # while len(list(n1.sockets.keys())) != len(publisher_list):
+    #     logging.warning(
+    #         f"Not all nodes ready {len(list(n1.sockets.keys()))} / {len(publisher_list)} "
+    #     )
 
-        await asyncio.sleep(1)
+    #     await asyncio.sleep(1)
 
-    logging.warning(
-        f"All nodes ready {len(list(n1.sockets.keys()))} / {len(router_list)} "
-    )
+    # logging.warning(
+    #     f"All nodes ready {len(list(n1.sockets.keys()))} / {len(publisher_list)} "
+    # )
 
     await asyncio.sleep(5)
 

@@ -25,7 +25,12 @@ class DirectMessage:
 
 
 @frozen
-class PeerDiscovery(DirectMessage):
+class ReadyToStart(PublishMessage):
+    peer_id: str = field(validator=[validators.instance_of(str)])
+
+
+@frozen
+class PeerDiscovery(PublishMessage):
     bls_public_key: str = field(converter=bytes_to_base64)
     ecdsa_public_key: tuple = field(converter=tuple)
     router_address: str = field(validator=[validators.instance_of(str)])
