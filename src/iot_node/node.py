@@ -364,8 +364,8 @@ class Node:
 
         req = await aiozmq.create_zmq_stream(zmq.REQ)
 
-        attempts = 50
-        while attempts < 5:
+        attempts = 0
+        while attempts < 50:
             try:
                 async with timeout(1):
                     await req.transport.connect(receiver)
@@ -389,8 +389,8 @@ class Node:
         async with self.rep_lock:
             req.write([message])
 
-            attempts = 50
-            while attempts < 5:
+            attempts = 0
+            while attempts < 50:
                 try:
                     async with timeout(1):
                         await req.read()
