@@ -56,7 +56,7 @@ async def main():
 
     logging.warning("Running peer discovery...")
     for node in nodes:
-        node.peer_discovery(router_list)
+        await node.peer_discovery(router_list)
 
     await asyncio.sleep(0.5 * NUM_NODES)
 

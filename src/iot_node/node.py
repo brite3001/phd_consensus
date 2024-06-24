@@ -8,6 +8,7 @@ from talipp.indicators import ZLEMA, RSI, SMA, EMA, KAMA, TEMA, TSI
 from scipy.stats import poisson, norm
 from typing import Union
 from sortedcontainers import SortedSet
+from async_timeout import timeout
 import base64
 import asyncio
 import aiozmq
@@ -361,18 +362,50 @@ class Node:
     async def unsigned_direct_message(self, message: DirectMessage, receiver=""):
         assert issubclass(type(message), DirectMessage)
 
-        if len(receiver) == 0:
-            peer_socket = random.choice(self.sockets)
-            req = peer_socket.socket
+        req = await aiozmq.create_zmq_stream(zmq.REQ)
+
+        attempts = 50
+        while attempts < 5:
+            try:
+                async with timeout(1):
+                    await req.transport.connect(receiver)
+                    self.my_logger.info(f"Successfully connected to {receiver}")
+                    break
+            except asyncio.TimeoutError:
+                self.my_logger.warning(
+                    f"Couldnt connect to {receiver}, attempt: {attempts}"
+                )
+                req.close()
+                req = await aiozmq.create_zmq_stream(zmq.REQ)
+                attempts += 1
         else:
-            req = await aiozmq.create_zmq_stream(zmq.REQ)
-            await req.transport.connect(receiver)
+            self.my_logger.error(
+                f"Failed to connect to {receiver} after {attempts} attempts"
+            )
 
         message = json.dumps(asdict(message)).encode()
 
         async with self.rep_lock:
             req.write([message])
-            await req.read()
+
+            attempts = 50
+            while attempts < 5:
+                try:
+                    async with timeout(1):
+                        await req.read()
+                        self.my_logger.info(f"Received response from {receiver}")
+                        break
+                except asyncio.TimeoutError:
+                    self.my_logger.warning(
+                        f"Didnt receive response from {receiver}, attempt: {attempts}"
+                    )
+                    attempts += 1
+            else:
+                self.my_logger.error(
+                    f"No reponse received from {receiver} after {attempts} attempts"
+                )
+
+        req.close()
 
     async def send_signed_batched_message(
         self,
@@ -816,7 +849,7 @@ class Node:
         # return as base64 for easier serialisation
         return base64.b64encode(agg_sig).decode("utf-8")
 
-    def peer_discovery(self, routers: list):
+    async def peer_discovery(self, routers: list):
         pd = PeerDiscovery(
             message_type="PeerDiscovery",
             bls_public_key=self._crypto_keys.bls_public_key,
@@ -825,9 +858,11 @@ class Node:
             publisher_address=self.publisher_bind,
         )
 
+        random.shuffle(routers)
+
         # Send the PD message to all peers
         for ip in routers:
-            self.command(pd, ip)
+            await self.unsigned_direct_message(pd, ip)
 
     async def subscribe(self, s2p: SubscribeToPublisher):
         # peer_id is a key from the self.peers dict
