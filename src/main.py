@@ -25,7 +25,7 @@ def get_node_port():
 
 async def main():
     nodes = []
-    NUM_NODES = 50
+    NUM_NODES = 25
 
     # at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
     # at2_config = AT2Configuration(7, 7, 7, 5, 6, 7)
@@ -52,27 +52,30 @@ async def main():
         await node.init_sockets()
         await node.start()
 
-    await asyncio.sleep(0.5 * NUM_NODES)
-
     logging.warning("Running peer discovery...")
     for node in nodes:
         await node.peer_discovery(router_list)
-
-    await asyncio.sleep(0.5 * NUM_NODES)
 
     n1 = nodes[0]
 
     # Wait for at least 1 node to be ready.
     # Nodes only become ready once all their peers are ready
+    while len(list(n1.peers.keys())) != len(router_list):
+        logging.warning(
+            f"Dont have all peers GOT: {len(list(n1.peers.keys()))} NEED: {len(router_list)} "
+        )
+
+        await asyncio.sleep(1)
+
     while len(list(n1.sockets.keys())) != len(router_list):
         logging.warning(
-            f"Not all nodes ready {len(list(n1.sockets.keys()))} / {len(router_list)} "
+            f"Dont have all sockets GOT: {len(list(n1.sockets.keys()))} NEED: {len(router_list)} "
         )
 
         await asyncio.sleep(1)
 
     logging.warning(
-        f"All nodes ready {len(list(n1.sockets.keys()))} / {len(router_list)} "
+        f"All nodes ready {len(list(n1.peers.keys()))} / {len(router_list)} "
     )
 
     await asyncio.sleep(5)
