@@ -940,7 +940,7 @@ class Node:
             bls_public_key_string,
         )
 
-        self.id = str(hash(self._crypto_keys.ecdsa_public_key_tuple))[:3]
+        self.id = str(hash(self._crypto_keys.ecdsa_public_key_tuple))[:10]
 
         self.my_logger = get_logger(self.id)
 
@@ -993,3 +993,4 @@ class Node:
         self.my_logger.debug("Started Jobs")
 
         self.my_logger.error("READY!!")
+        self.my_logger.error(f"my peer id is {self.id}!!")
