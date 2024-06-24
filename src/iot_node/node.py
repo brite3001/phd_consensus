@@ -50,16 +50,13 @@ class CryptoKeys:
 
     def ecdsa_tuple_to_id(self, ecdsa: tuple) -> str:
         assert isinstance(ecdsa, tuple)
-        return str(hash(ecdsa))[:3]
+        return str(hash(ecdsa))[:10]
 
     def bls_bytes_to_base64(self, bls_bytes: bytes) -> base64:
         base64.b64encode(bls_bytes).decode("utf-8")
 
     def bls_base64_to_bytes(self, bls_base64: base64) -> bytes:
         return base64.b64decode(bls_base64)
-
-    def bls_bytes_to_id(self, bls_bytes: bytes) -> str:
-        return str(hash(bls_bytes))[:3]
 
 
 @frozen
