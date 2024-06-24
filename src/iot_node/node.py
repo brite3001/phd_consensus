@@ -198,7 +198,27 @@ class Node:
             self.peers[ecdsa_id] = message
 
             req = await aiozmq.create_zmq_stream(zmq.REQ)
-            await req.transport.connect(message.router_address)
+
+            attempts = 0
+            while attempts < 50:
+                try:
+                    async with timeout(1):
+                        await req.transport.connect(message.router_address)
+                        self.my_logger.info(f"Successfully added {ecdsa_id}'s socket")
+                        break
+                except asyncio.TimeoutError:
+                    self.my_logger.warning(
+                        f"Couldnt add socket for {ecdsa_id}, attempt: {attempts}"
+                    )
+                    req.close()
+                    req = await aiozmq.create_zmq_stream(zmq.REQ)
+                    attempts += 1
+                    await asyncio.sleep(1)
+            else:
+                self.my_logger.error(
+                    f"Failed to add socket for {ecdsa_id} after {attempts} attempts"
+                )
+
             self.sockets[ecdsa_id] = PeerSocket(message.router_address, ecdsa_id, req)
 
         elif isinstance(message, DirectMessage):
