@@ -23,7 +23,6 @@ from .message_classes import PublishMessage
 from .message_classes import BatchedMessages
 from .message_classes import Gossip
 from .message_classes import PeerDiscovery
-from .message_classes import ReadyToStart
 from .message_classes import Echo
 from .message_classes import Response
 from .commad_arg_classes import SubscribeToPublisher
@@ -94,10 +93,6 @@ class Node:
     # Info about our peers
     peers: dict[str, PeerInformation] = field(factory=dict)  # str == ECDSA ID
     sockets: dict[str, PeerSocket] = field(factory=dict)  # str == ECDSA ID
-
-    # Startup sync
-    peers_ready_to_start: set = field(factory=set)
-    num_nodes: int = field(factory=int)
 
     # AIOZMQ Sockets
     _subscriber: aiozmq.stream.ZmqStream = field(init=False)
@@ -204,8 +199,6 @@ class Node:
             req = await aiozmq.create_zmq_stream(zmq.REQ)
             await req.transport.connect(message.router_address)
             self.sockets[ecdsa_id] = PeerSocket(message.router_address, ecdsa_id, req)
-        elif isinstance(message, ReadyToStart):
-            self.peers_ready_to_start.add(message.peer_id)
 
         elif isinstance(message, DirectMessage):
             self.my_logger.info(message)
@@ -278,6 +271,13 @@ class Node:
                         )
                 else:
                     self.my_logger.debug(f"Already received BM: {bm_hash}")
+            elif msg["message_type"] == "PeerDiscovery":
+                pd = PeerDiscovery(**msg)
+                creator_id = self._crypto_keys.ecdsa_tuple_to_id(pd.ecdsa_public_key)
+                # self.my_logger.info(
+                #     f"Received Peer Discovery Message from {creator_id}"
+                # )
+                asyncio.create_task(self.inbox(pd))
             elif msg["message_type"] in ["EchoSubscribe", "ReadySubscribe"]:
                 echo_type = msg["message_type"]
                 creator_signature = json.loads(recv[4].decode())
@@ -347,17 +347,6 @@ class Node:
                     self.my_logger.warning(
                         f"Signature check for message {message.topic} from {publisher} failed!!"
                     )
-            elif message["message_type"] == "PeerDiscovery":
-                pd = PeerDiscovery(**message)
-                creator_id = self._crypto_keys.ecdsa_tuple_to_id(pd.ecdsa_public_key)
-                # self.my_logger.info(
-                #     f"Received Peer Discovery Message from {creator_id}"
-                # )
-                asyncio.create_task(self.inbox(pd))
-            elif message["message_type"] == "ReadyToStart":
-                r2s = ReadyToStart(**message)
-
-                asyncio.create_task(self.inbox(r2s))
             else:
                 self.my_logger.error(f"Received unrecognised message: {message}")
 
@@ -372,8 +361,12 @@ class Node:
     async def unsigned_direct_message(self, message: DirectMessage, receiver=""):
         assert issubclass(type(message), DirectMessage)
 
-        req = await aiozmq.create_zmq_stream(zmq.REQ)
-        await req.transport.connect(receiver)
+        if len(receiver) == 0:
+            peer_socket = random.choice(self.sockets)
+            req = peer_socket.socket
+        else:
+            req = await aiozmq.create_zmq_stream(zmq.REQ)
+            await req.transport.connect(receiver)
 
         message = json.dumps(asdict(message)).encode()
 
@@ -388,10 +381,6 @@ class Node:
     ):
         creator_sig = json.dumps(bm.sign_as_creator(self._crypto_keys)).encode()
         sender_sig = json.dumps(bm.sign_as_sender(self._crypto_keys)).encode()
-
-        # print(f"Sending {hash(bm)} to {receiver}")
-        if receiver not in list(self.sockets):
-            print(self.sockets)
 
         message = json.dumps(asdict(bm)).encode()
 
@@ -564,9 +553,7 @@ class Node:
 
         # Step 2
         for peer_id in echo_subscribe:
-            s2p = SubscribeToPublisher(
-                self.peers[peer_id].publisher_address, batched_message_hash.encode()
-            )
+            s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
             self.command(s2p)
 
         # Step 3
@@ -583,9 +570,7 @@ class Node:
 
         # Step 5
         for peer_id in ready_subscribe:
-            s2p = SubscribeToPublisher(
-                self.peers[peer_id].publisher_address, batched_message_hash.encode()
-            )
+            s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
             self.command(s2p)
 
         for peer_id in echo_subscribe:
@@ -831,118 +816,31 @@ class Node:
         # return as base64 for easier serialisation
         return base64.b64encode(agg_sig).decode("utf-8")
 
-    def chop_into_groups(self, lst, group_size):
-        n = len(lst)
-        if n == 0 or group_size <= 0:
-            return []
+    def peer_discovery(self, routers: list):
+        pd = PeerDiscovery(
+            message_type="PeerDiscovery",
+            bls_public_key=self._crypto_keys.bls_public_key,
+            ecdsa_public_key=self._crypto_keys.ecdsa_public_key_tuple,
+            router_address=self.router_bind,
+            publisher_address=self.publisher_bind,
+        )
 
-        num_groups = (
-            n + group_size - 1
-        ) // group_size  # Calculate number of groups needed
-        groups = []
-
-        for i in range(num_groups):
-            start_index = i * group_size
-            end_index = min(start_index + group_size, n)
-            groups.append(set(lst[start_index:end_index]))
-
-        return groups
-
-    async def peer_discovery(self, publishers: list):
-        self.num_nodes = len(publishers)
-        pd_group_size = 5
-
-        split_peer_discovery = self.chop_into_groups(publishers, pd_group_size)
-
-        for i, publishers in enumerate(split_peer_discovery):
-            print(publishers)
-            print(f"PART {1+i} OF PD")
-            # Subscribe to all the nodes on the network, init peer discovery
-            for publisher_address in publishers:
-                s2p = SubscribeToPublisher(
-                    publisher_address=publisher_address, topic=b"ReadyToStart"
-                )
-
-                self.command(s2p)
-
-                s2p = SubscribeToPublisher(
-                    publisher_address=publisher_address, topic=b"PeerDiscovery"
-                )
-
-                self.command(s2p)
-
-            pd = PeerDiscovery(
-                message_type="PeerDiscovery",
-                topic="PeerDiscovery",
-                bls_public_key=self._crypto_keys.bls_public_key,
-                ecdsa_public_key=self._crypto_keys.ecdsa_public_key_tuple,
-                router_address=self.router_bind,
-                publisher_address=self.publisher_bind,
-            )
-
-            # Broadcast our peer information to the network
-            self.command(pd)
-
-            my_ecdsa_id = self._crypto_keys.ecdsa_tuple_to_id(
-                self._crypto_keys.ecdsa_public_key_tuple
-            )
-
-            # Wait until we've discovered all peers on the network, keep broadcasting our
-            # PD info til all are found
-            discovered_publishers = set(
-                [s.publisher_address for s in list(self.peers.values())]
-            )
-
-            while publishers.issubset(discovered_publishers):
-                await asyncio.sleep(random.randint(1, 3))
-                # print(not publishers.issubset(discovered_sockets))
-                # print(publishers)
-                # print(discovered_sockets)
-                print("Sockets: ", len(self.sockets))
-                print("Peers: ", len(self.peers))
-                self.command(pd)
-
-                # self.my_logger.warning(
-                #     f"Waiting to discover all peers. Got: {len(self.sockets)} Need: {self.num_nodes}"
-                # )
-
-                found_peers = set(
-                    [peer.publisher_address for peer in list(self.peers.values())]
-                )
-                missing_peers = set(publishers) - found_peers
-
-                print(f"MISSING PEERS {missing_peers}")
-
-            r2s = ReadyToStart(
-                message_type="ReadyToStart", topic="ReadyToStart", peer_id=my_ecdsa_id
-            )
-
-        # Once all peers discovered, wait to receive a ReadyToStart message from
-        # every node on network
-        while len(self.peers_ready_to_start) != ((i + 1) * pd_group_size) - 1:
-            await asyncio.sleep(random.randint(1, 3))
-
-            self.my_logger.warning(
-                f"Waiting for ready messages. Got: {self.peers_ready_to_start} Need: {self.num_nodes}"
-            )
-
-            self.command(r2s)
-            self.command(pd)
-
-        print((i + 1) * pd_group_size)
-        print(len(self.peers_ready_to_start))
-
-        if len(self.peers_ready_to_start) == self.num_nodes:
-            self.my_logger.error("Finished Peer Discovery, all nodes ready!!!!!")
-        else:
-            self.my_logger.error("Something went wrong, everyones not ready......")
+        # Send the PD message to all peers
+        for ip in routers:
+            self.command(pd, ip)
 
     async def subscribe(self, s2p: SubscribeToPublisher):
+        # peer_id is a key from the self.peers dict
+
         # Don't resubscribe to the same ip twice, or else things break
-        if s2p.publisher_address not in self.connected_subscribers:
-            self._subscriber.transport.connect(s2p.publisher_address)
-            self.connected_subscribers.add(s2p.publisher_address)
-            self.my_logger.debug(f"Connected to publisher: {s2p.publisher_address}")
+        if s2p.peer_id not in self.connected_subscribers:
+            self._subscriber.transport.connect(
+                self.peers[s2p.peer_id].publisher_address
+            )
+            self.connected_subscribers.add(s2p.peer_id)
+            self.my_logger.debug(
+                f"Connected to publisher: {self.peers[s2p.peer_id].publisher_address}"
+            )
 
         if s2p.topic not in self.subscribed_topics:
             self._subscriber.transport.subscribe(s2p.topic)
