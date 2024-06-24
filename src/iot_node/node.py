@@ -378,6 +378,7 @@ class Node:
                 req.close()
                 req = await aiozmq.create_zmq_stream(zmq.REQ)
                 attempts += 1
+                await asyncio.sleep(1)
         else:
             self.my_logger.error(
                 f"Failed to connect to {receiver} after {attempts} attempts"
@@ -400,6 +401,7 @@ class Node:
                         f"Didnt receive response from {receiver}, attempt: {attempts}"
                     )
                     attempts += 1
+                    await asyncio.sleep(1)
             else:
                 self.my_logger.error(
                     f"No reponse received from {receiver} after {attempts} attempts"
