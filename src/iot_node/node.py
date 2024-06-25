@@ -49,16 +49,13 @@ class CryptoKeys:
 
     def ecdsa_tuple_to_id(self, ecdsa: tuple) -> str:
         assert isinstance(ecdsa, tuple)
-        return str(hash(ecdsa))[:3]
+        return str(hash(ecdsa))[:10]
 
     def bls_bytes_to_base64(self, bls_bytes: bytes) -> base64:
         base64.b64encode(bls_bytes).decode("utf-8")
 
     def bls_base64_to_bytes(self, bls_base64: base64) -> bytes:
         return base64.b64decode(bls_base64)
-
-    def bls_bytes_to_id(self, bls_bytes: bytes) -> str:
-        return str(hash(bls_bytes))[:3]
 
 
 @frozen
@@ -89,9 +86,6 @@ class Node:
     )
     id: str = field(init=False)
     my_logger = field(init=False)
-
-    # node startup synchronisation
-    startup_ready = field(factory=set)
 
     # Info about our peers
     peers: dict[str, PeerInformation] = field(factory=dict)  # str == ECDSA ID
@@ -348,8 +342,6 @@ class Node:
                     self.my_logger.warning(
                         f"Signature check for message {message.topic} from {publisher} failed!!"
                     )
-            elif message["message_type"] == "Startup":
-                self.startup_ready.add(message["node_id"])
 
     ####################
     # Message Sending  #
@@ -830,54 +822,6 @@ class Node:
         for ip in routers:
             self.command(pd, ip)
 
-        while len(routers) != len(list(self.sockets.keys())):
-            self.my_logger.debug(
-                f"waiting for peer discovery... {len(list(self.sockets.keys()))} / {len(routers)}"
-            )
-            await asyncio.sleep(1)
-        self.my_logger.debug(
-            f"All peers discovered! {len(list(self.sockets.keys()))} / {len(routers)}"
-        )
-
-        print(routers)
-
-        print("aaaaaaa")
-
-        im_ready = {
-            "message_type": "Startup",
-            "topic": "Startup",
-            "node_id": self.router_bind,
-        }
-
-        for peer_id in list(self.peers.keys()):
-            s2p_ready = SubscribeToPublisher(peer_id, b"Startup")
-            self.command(s2p_ready)
-
-        print(self.peers)
-
-        print("bbbbbbbbb")
-
-        # wait for sockets to cache
-        while len(routers) != len(list(self.sockets.keys())):
-            asyncio.sleep(1)
-
-        print(self.sockets)
-
-        print("ccccccc")
-
-        asyncio.create_task(self.unsigned_publish(im_ready))
-        await asyncio.sleep(1)
-        # while len(routers) != len(self.startup_ready):
-        #     self.my_logger.debug("broadcasting ready")
-        #     asyncio.create_task(self.unsigned_publish(im_ready))
-        #     await asyncio.sleep(1)
-
-        print("ddddddd")
-
-        asyncio.create_task(self.unsigned_publish(im_ready))
-
-        print("FINISHED PEER DISCOVREY")
-
     async def subscribe(self, s2p: SubscribeToPublisher):
         # peer_id is a key from the self.peers dict
 
@@ -926,7 +870,7 @@ class Node:
             bls_public_key_string,
         )
 
-        self.id = str(hash(self._crypto_keys.ecdsa_public_key_tuple))[:3]
+        self.id = str(hash(self._crypto_keys.ecdsa_public_key_tuple))[:10]
 
         self.my_logger = get_logger(self.id)
 
