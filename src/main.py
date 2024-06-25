@@ -24,58 +24,51 @@ def get_node_port():
 
 
 async def main():
-    nodes = []
-    NUM_NODES = 25
+    NUM_NODES = 50
 
     # at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
     # at2_config = AT2Configuration(7, 7, 7, 5, 6, 7)
     at2_config = AT2Configuration(6, 6, 6, 4, 5, 6)
 
-    my_node_id = get_node_port()
+    docker_node_id = get_node_port()
 
     router_list = []
 
     for i in range(NUM_NODES):
-        if i != my_node_id:
+        if i != docker_node_id:
             router_list.append(f"tcp://127.0.0.1:{20001+i}")
 
-    nodes.append(
-        Node(
-            router_bind=f"tcp://127.0.0.1:{20001 + my_node_id}",
-            publisher_bind=f"tcp://127.0.0.1:{21001 + my_node_id}",
-            at2_config=at2_config,
-        )
+    this_node = Node(
+        router_bind=f"tcp://127.0.0.1:{20001 + docker_node_id}",
+        publisher_bind=f"tcp://127.0.0.1:{21001 + docker_node_id}",
+        at2_config=at2_config,
     )
 
-    logging.warning("Spinning up nodes...")
-    for node in nodes:
-        await node.init_sockets()
-        await node.start()
+    logging.warning(f"Spinning up {docker_node_id}")
+    await this_node.init_sockets()
+    await this_node.start()
 
-    logging.warning("Running peer discovery...")
-    for node in nodes:
-        await node.peer_discovery(router_list)
+    logging.warning(f"Running peer discovery on {docker_node_id}...")
+    await this_node.peer_discovery(router_list)
 
-    n1 = nodes[0]
-
-    # Wait for at least 1 node to be ready.
-    # Nodes only become ready once all their peers are ready
-    while len(list(n1.peers.keys())) != len(router_list):
+    # Wait til we find all our peers
+    while len(list(this_node.peers.keys())) != len(router_list):
         logging.warning(
-            f"Dont have all peers GOT: {len(list(n1.peers.keys()))} NEED: {len(router_list)} "
+            f"Dont have all peers GOT: {len(list(this_node.peers.keys()))} NEED: {len(router_list)} "
         )
 
         await asyncio.sleep(1)
 
-    while len(list(n1.sockets.keys())) != len(router_list):
+    # Wait til we cache all our peers sockets
+    while len(list(this_node.sockets.keys())) != len(router_list):
         logging.warning(
-            f"Dont have all sockets GOT: {len(list(n1.sockets.keys()))} NEED: {len(router_list)} "
+            f"Dont have all sockets GOT: {len(list(this_node.sockets.keys()))} NEED: {len(router_list)} "
         )
 
         await asyncio.sleep(1)
 
     logging.warning(
-        f"All nodes ready {len(list(n1.peers.keys()))} / {len(router_list)} "
+        f"All nodes ready {len(list(this_node.peers.keys()))} / {len(router_list)} "
     )
 
     await asyncio.sleep(5)
@@ -86,22 +79,21 @@ async def main():
 
     for i in range(2000):
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
-        if n1.router_bind == "tcp://127.0.0.1:20001":
-            # if random.randint(1, 10) == 5:
-            logging.error(f"Fast {i}")
-            n1.command(gos)
-            n1.command(gos)
-            n1.command(gos)
-            n1.command(gos)
-            n1.command(gos)
-            n1.command(gos)
-            n1.command(gos)
+        for i in range(1, 1001):
+            if (i - 1) % NUM_NODES == docker_node_id - 1:
+                logging.error(f"Fast {i}")
+                this_node.command(gos)
+                this_node.command(gos)
+                this_node.command(gos)
+                this_node.command(gos)
+                this_node.command(gos)
+                this_node.command(gos)
+                this_node.command(gos)
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
 
-    for node in nodes:
-        node.scheduler.pause_job(node.increase_job_id)
-        node.scheduler.pause_job(node.decrease_job_id)
+    this_node.scheduler.pause_job(this_node.increase_job_id)
+    this_node.scheduler.pause_job(this_node.decrease_job_id)
 
 
 async def shutdown(signal, loop):
