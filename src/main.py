@@ -155,7 +155,7 @@ async def main():
     # # Fast    #
     # ###########
 
-    for i in range(1000):
+    for i in range(60):
         print(f"Fast {i}")
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         n = random.choice(nodes)
@@ -168,13 +168,13 @@ async def main():
         n1.command(gos)
         n1.command(gos)
 
-        await asyncio.sleep(10)
+        await asyncio.sleep(2)
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)
         node.scheduler.pause_job(node.decrease_job_id)
 
-    await asyncio.sleep(60)
+    await asyncio.sleep(10)
 
     # for node in nodes:
     #     node.scheduler.resume_job(node.increase_job_id)
@@ -242,34 +242,48 @@ async def main():
     #     n.statistics()
     #     print("---------------------------")
 
-    received_msg_metadata = []
-    sent_msg_metadata = []
-    node_ids = []
-    total_sent_messages = 0
-    total_received_messages = 0
-    total_messages_delivered = 0
+    # received_msg_metadata = []
+    # sent_msg_metadata = []
+    # node_ids = []
+    # total_sent_messages = 0
+    # total_received_messages = 0
+    # total_messages_delivered = 0
 
+    # for node in nodes:
+    #     received_msg_metadata.append(node.block_times)
+    #     sent_msg_metadata.append(node.sent_msg_metadata)
+    #     node_ids.append(node.id)
+    #     total_sent_messages += node.sent_gossips
+    #     total_received_messages += node.received_gossips
+    #     total_messages_delivered += node.delivered_gossips
+
+    # avg_list, min_list, max_list = average_min_max_lists(received_msg_metadata)
+
+    # save_list(avg_list, TEST_NAME, "avg.txt")
+    # save_list(min_list, TEST_NAME, "min.txt")
+    # save_list(max_list, TEST_NAME, "max.txt")
+    # aaa = [total_sent_messages, total_received_messages, total_messages_delivered]
+    # save_list(aaa, TEST_NAME, "sent_recv_deliv.txt")
+    # save_list(sent_msg_metadata, TEST_NAME, "sent_metadata.txt")
+
+    # print("**********************************")
+    # print("FINISHED!!!")
+    # print("Dont forget to change the TEST TYPE!!")
+    # print("**********************************")
+
+    current_latency_metadata = []
     for node in nodes:
-        received_msg_metadata.append(node.block_times)
-        sent_msg_metadata.append(node.sent_msg_metadata)
-        node_ids.append(node.id)
-        total_sent_messages += node.sent_gossips
-        total_received_messages += node.received_gossips
-        total_messages_delivered += node.delivered_gossips
+        current_latency_metadata.append(node.current_latency_metadata)
 
-    avg_list, min_list, max_list = average_min_max_lists(received_msg_metadata)
+    print(current_latency_metadata)
 
-    save_list(avg_list, TEST_NAME, "avg.txt")
-    save_list(min_list, TEST_NAME, "min.txt")
-    save_list(max_list, TEST_NAME, "max.txt")
-    aaa = [total_sent_messages, total_received_messages, total_messages_delivered]
-    save_list(aaa, TEST_NAME, "sent_recv_deliv.txt")
-    save_list(sent_msg_metadata, TEST_NAME, "sent_metadata.txt")
+    avg_latency, min_latency, max_latency = average_min_max_lists(
+        current_latency_metadata
+    )
 
-    print("**********************************")
-    print("FINISHED!!!")
-    print("Dont forget to change the TEST TYPE!!")
-    print("**********************************")
+    save_list(avg_latency, "latency", "avg.txt")
+    save_list(min_latency, "latency", "min.txt")
+    save_list(max_latency, "latency", "max.txt")
 
 
 async def shutdown(signal, loop):
