@@ -1,15 +1,12 @@
-from copy import deepcopy
-
 import asyncio
 import signal
 import uvloop
-import random
 import time
 import os
+import requests
 
 from iot_node.node import Node
 from iot_node.message_classes import Gossip
-from iot_node.message_classes import PublishMessage
 from iot_node.at2_classes import AT2Configuration
 from logs import get_logger
 
@@ -24,7 +21,7 @@ def get_node_port():
 
 
 async def main():
-    NUM_NODES = 50
+    NUM_NODES = 10
 
     # at2_config = AT2Configuration(10, 10, 10, 6, 8, 9)
     # at2_config = AT2Configuration(7, 7, 7, 5, 6, 7)
@@ -77,23 +74,28 @@ async def main():
     # # Fast    #
     # ###########
 
-    for i in range(2000):
+    for i in range(1, 60):
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
-        for i in range(1, 1001):
-            if (i - 1) % NUM_NODES == docker_node_id - 1:
-                logging.error(f"Fast {i}")
-                this_node.command(gos)
-                this_node.command(gos)
-                this_node.command(gos)
-                this_node.command(gos)
-                this_node.command(gos)
-                this_node.command(gos)
-                this_node.command(gos)
+        if (i - 1) % NUM_NODES == docker_node_id - 1:
+            logging.error(f"Fast {i}")
+            this_node.command(gos)
+            this_node.command(gos)
+            this_node.command(gos)
+            this_node.command(gos)
+            this_node.command(gos)
+            this_node.command(gos)
+            this_node.command(gos)
 
-            await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
 
     this_node.scheduler.pause_job(this_node.increase_job_id)
     this_node.scheduler.pause_job(this_node.decrease_job_id)
+
+    this_node.current_latency_metadata
+
+    url = "http://localhost:8080/logs/"
+    r = requests.post(url, json={"latencies": this_node.current_latency_metadata})
+    print(r.status_code)
 
 
 async def shutdown(signal, loop):

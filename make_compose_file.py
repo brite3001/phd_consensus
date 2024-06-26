@@ -1,4 +1,4 @@
-num_nodes = 50  # Number of nodes you want to spin up
+num_nodes = 10  # Number of nodes you want to spin up
 
 with open("docker-compose.yml", "w") as file:
     file.write("services:\n")

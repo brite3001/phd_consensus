@@ -139,6 +139,7 @@ class Node:
     delivered_gossips: int = field(factory=int)
     sent_msg_metadata: list = field(factory=list)
     received_msg_metadata: list = field(factory=list)
+    current_latency_metadata: list = field(factory=list)
 
     ####################
     # Inbox            #
@@ -554,6 +555,8 @@ class Node:
                     )
                     self.job_time_change_flag = True
 
+            self.current_latency_metadata.append(filtered_zlema[-1])
+
     async def decrease_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
 
@@ -583,6 +586,8 @@ class Node:
                         f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.current_latency}"
                     )
                     self.job_time_change_flag = True
+
+            self.current_latency_metadata.append(filtered_zlema[-1])
 
     ####################
     # AT2 Consensus    #

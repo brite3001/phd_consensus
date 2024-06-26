@@ -1,3 +1,0 @@
-Execution time: 3.146956947
-CPU time: 1.899324
-Memory usage: 768 KB
