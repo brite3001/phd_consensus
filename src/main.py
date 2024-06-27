@@ -7,7 +7,6 @@ import uvloop
 import random
 import time
 import os
-import ifaddr
 
 from iot_node.node import Node
 from iot_node.message_classes import Gossip
@@ -155,9 +154,11 @@ async def main():
     # # Fast    #
     # ###########
 
-    for i in range(60):
+    pad = 10**935
+
+    for i in range(1000):
         print(f"Fast {i}")
-        gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
+        gos = Gossip(message_type="Gossip", timestamp=int(time.time()), padding=pad)
         n = random.choice(nodes)
 
         n1.command(gos)
@@ -168,7 +169,7 @@ async def main():
         n1.command(gos)
         n1.command(gos)
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.25)
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)
@@ -313,3 +314,19 @@ if __name__ == "__main__":
     finally:
         logging.info("Successfully shutdown service")
         loop.close()
+
+    # import json
+
+    # gos = Gossip(
+    #     message_type="Gossip",
+    #     timestamp=int(time.time()),
+    #     padding=10**935,
+    # )
+
+    # gos = json.dumps(asdict(gos))
+
+    # print(gos.encode("utf-8"))
+
+    # gos = len(gos.encode())
+
+    # print(gos)

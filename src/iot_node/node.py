@@ -106,7 +106,7 @@ class Node:
     target_latency: int = 10
     current_latency: int = field(factory=int)
     max_gossip_timeout_time = 60
-    node_selection_type = "normal"
+    node_selection_type = "random"
     random_seed = 2929
 
     # Congestion control
@@ -414,7 +414,7 @@ class Node:
 
     async def batched_message_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
-        asyncio.create_task(self.batch_message_builder_job())
+        # asyncio.create_task(self.batch_message_builder_job())
 
     async def batch_message_builder_job(self):
         if len(self.pending_gossips) >= 1:

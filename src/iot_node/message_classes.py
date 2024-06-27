@@ -35,6 +35,7 @@ class PeerDiscovery(DirectMessage):
 @frozen
 class Gossip(DirectMessage):
     timestamp: int = field(validator=[validators.instance_of(int)])
+    padding: int = field(validator=[validators.instance_of(int)])
 
 
 def base64_to_bytes(x: base64) -> bytes:
