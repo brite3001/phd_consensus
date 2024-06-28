@@ -156,26 +156,30 @@ async def main():
 
     pad = 10**935
 
-    for i in range(1000):
+    # COUNT ONLY THE FIRST GOSSIP FOR THE TPS CALCULATION.
+    # MAKE A NEW METADATA VAR THAT STORES GOSSIPS YOU'VE SENT AS THE CREATOR
+    # USE THAT TO GRAPH THE TPS.
+
+    for i in range(250):
         print(f"Fast {i}")
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()), padding=pad)
         n = random.choice(nodes)
 
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
-        n1.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
+        n.command(gos)
 
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(1)
 
     for node in nodes:
         node.scheduler.pause_job(node.increase_job_id)
         node.scheduler.pause_job(node.decrease_job_id)
 
-    await asyncio.sleep(10)
+    await asyncio.sleep(30)
 
     # for node in nodes:
     #     node.scheduler.resume_job(node.increase_job_id)
@@ -272,19 +276,18 @@ async def main():
     # print("Dont forget to change the TEST TYPE!!")
     # print("**********************************")
 
+    ########################################################################
+    # TPS / LATENCY / MESSAGE BATCH GRAPHS
+    #######################################################################
+
     current_latency_metadata = []
+    delivered_messages_metadata = []
     for node in nodes:
         current_latency_metadata.append(node.current_latency_metadata)
+        delivered_messages_metadata.append(node.delivered_msg_metadata)
 
-    print(current_latency_metadata)
-
-    avg_latency, min_latency, max_latency = average_min_max_lists(
-        current_latency_metadata
-    )
-
-    save_list(avg_latency, "latency", "avg.txt")
-    save_list(min_latency, "latency", "min.txt")
-    save_list(max_latency, "latency", "max.txt")
+    save_list(current_latency_metadata, "tps", "smooth_latency.txt")
+    save_list(delivered_messages_metadata, "tps", "delivered_with_batch_size.txt")
 
 
 async def shutdown(signal, loop):

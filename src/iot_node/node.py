@@ -103,10 +103,10 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_latency: int = 10
+    target_latency: int = 15
     current_latency: int = field(factory=int)
     max_gossip_timeout_time = 60
-    node_selection_type = "random"
+    node_selection_type = "normal"
     random_seed = 2929
 
     # Congestion control
@@ -139,6 +139,7 @@ class Node:
     sent_msg_metadata: list = field(factory=list)
     received_msg_metadata: list = field(factory=list)
     current_latency_metadata: list = field(factory=list)
+    delivered_msg_metadata: list = field(factory=list)
 
     ####################
     # Inbox            #
@@ -478,7 +479,7 @@ class Node:
                 )
 
                 # TSI +30
-                if rsi > 30 and dont_exceed_max_target and network_not_slow:
+                if rsi > 70 and dont_exceed_max_target and network_not_slow:
                     self.current_latency = round(self.current_latency * increase, 3)
                     self.my_logger.error(
                         f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
@@ -489,7 +490,7 @@ class Node:
                     f"Congestion Control [{round(filtered_zlema[-1], 3)}]"
                 )
 
-            self.current_latency_metadata.append(filtered_zlema[-1])
+            self.current_latency_metadata.append((time.time(), filtered_zlema[-1]))
 
     async def decrease_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
@@ -513,7 +514,7 @@ class Node:
                 # )
 
                 # TSI -30
-                if rsi < 30:
+                if rsi < 30 or filtered_zlema[-1] <= 0.25 * self.target_latency:
                     self.current_latency = round(self.current_latency * decrease, 3)
 
                     self.my_logger.error(
@@ -525,7 +526,7 @@ class Node:
                     f"Congestion Control [{round(filtered_zlema[-1], 3)}]"
                 )
 
-            self.current_latency_metadata.append(filtered_zlema[-1])
+            self.current_latency_metadata.append((time.time(), filtered_zlema[-1]))
 
     ####################
     # AT2 Consensus    #
@@ -652,6 +653,9 @@ class Node:
             )
 
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
+
+            if i_am_message_creator:
+                self.delivered_msg_metadata.append((time.time(), len(bm.messages)))
         else:
             self.my_logger.warning(
                 f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash} got: {ready_subscribe.intersection(self.ready_replies[batched_message_hash])} needed: {self.at2_config.delivery_threshold}"
