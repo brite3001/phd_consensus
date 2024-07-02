@@ -4,6 +4,16 @@ WORKDIR /code
 
 COPY pyproject.toml pdm.lock /code/
 
+# Set the timezone environment variable
+ENV TZ=Australia/Victoria
+
+# Install the tzdata package and set the timezone
+RUN apt-get update && \
+    apt-get install -y tzdata && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone
+
+
 # Install PDM
 RUN pip install pdm
 
