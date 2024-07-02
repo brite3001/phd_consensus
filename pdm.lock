@@ -4,8 +4,8 @@
 [metadata]
 groups = ["default"]
 strategy = ["cross_platform"]
-lock_version = "4.4.1"
-content_hash = "sha256:41866c82361642c0d81ad6ffaccc150c9c6ef82b2a3614a39e07ec634e6bbe02"
+lock_version = "4.4.2"
+content_hash = "sha256:ac19ba12b8603066b9a38762095e8ac252ac67828f1bde3dbf3b6405fbf7be86"
 
 [[package]]
 name = "aiozmq"
