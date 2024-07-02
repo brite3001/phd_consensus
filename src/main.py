@@ -91,10 +91,12 @@ async def main():
     this_node.scheduler.pause_job(this_node.increase_job_id)
     this_node.scheduler.pause_job(this_node.decrease_job_id)
 
-    this_node.current_latency_metadata
+    url = "http://localhost:8000/current_latency/"
+    r = requests.post(url, json={"data": this_node.current_latency_metadata})
+    print(r.status_code)
 
-    url = "http://localhost:8080/logs/"
-    r = requests.post(url, json={"latencies": this_node.current_latency_metadata})
+    url = "http://localhost:8000/delivered_latency/"
+    r = requests.post(url, json={"data": this_node.delivered_msg_metadata})
     print(r.status_code)
 
 

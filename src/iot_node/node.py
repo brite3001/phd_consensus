@@ -140,6 +140,7 @@ class Node:
     sent_msg_metadata: list = field(factory=list)
     received_msg_metadata: list = field(factory=list)
     current_latency_metadata: list = field(factory=list)
+    delivered_msg_metadata: list = field(factory=list)
 
     ####################
     # Inbox            #
@@ -555,7 +556,7 @@ class Node:
                     )
                     self.job_time_change_flag = True
 
-            self.current_latency_metadata.append(filtered_zlema[-1])
+            self.current_latency_metadata.append((time.time(), filtered_zlema[-1]))
 
     async def decrease_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
@@ -587,7 +588,7 @@ class Node:
                     )
                     self.job_time_change_flag = True
 
-            self.current_latency_metadata.append(filtered_zlema[-1])
+            self.current_latency_metadata.append((time.time(), filtered_zlema[-1]))
 
     ####################
     # AT2 Consensus    #
@@ -713,6 +714,9 @@ class Node:
             self.sequenced_messages.add(
                 (tuple(vector_clock_without_node_id), batched_message_hash)
             )
+
+            if i_am_message_creator:
+                self.delivered_msg_metadata.append((time.time(), len(bm.messages)))
 
             self.my_logger.warning(f"{batched_message_hash} has been delivered!")
         else:
