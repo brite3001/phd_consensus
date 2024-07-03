@@ -87,7 +87,7 @@ def group_and_average(data, interval=10):
 ##########################
 tps_calculation = [(x[0], 1) for x in delivered_with_batch_size]
 
-interval = 5  # Calculate average transactions every 10 seconds
+interval = 10  # Calculate average transactions every 10 seconds
 x_values, average_transactions = calculate_average_transactions(
     tps_calculation, interval
 )
@@ -120,7 +120,7 @@ plt.figure()
 plt.plot(latency_unix_timestamp, latency, "b-", label="Latency")
 
 # Plotting latency as a line graph on primary y-axis
-plt.plot(x_values, average_transactions, marker="o", label="TPS")
+plt.plot(x_values, average_transactions, label="TPS")
 
 # Plotting batch size as a shaded area plot on primary y-axis
 plt.fill_between(
