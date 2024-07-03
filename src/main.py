@@ -4,6 +4,7 @@ import uvloop
 import time
 import os
 import requests
+import random
 
 from iot_node.node import Node
 from iot_node.message_classes import Gossip
@@ -73,18 +74,14 @@ async def main():
     # ###########
     # # Fast    #
     # ###########
-
     for i in range(1, 150):
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
-        if (i - 1) % NUM_NODES == docker_node_id - 1:
-            logging.error(f"Fast {i}")
-            this_node.command(gos)
-            this_node.command(gos)
-            this_node.command(gos)
-            this_node.command(gos)
-            this_node.command(gos)
-            this_node.command(gos)
-            this_node.command(gos)
+
+        # Randomize the process of sending commands with a certain probability
+        if random.random() < 0.1:  # Adjust probability as needed
+            logging.error(f"Node {docker_node_id} sending commands at iteration {i}")
+            for _ in range(7):  # Send the command 7 times
+                this_node.command(gos)
 
         await asyncio.sleep(0.8)
 
