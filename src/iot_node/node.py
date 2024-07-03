@@ -104,7 +104,7 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_latency: int = 10
+    target_latency: int = 15
     current_latency: int = field(factory=int)
     max_gossip_timeout_time = 60
     node_selection_type = "normal"
@@ -475,7 +475,7 @@ class Node:
 
     async def batched_message_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
-        asyncio.create_task(self.batch_message_builder_job())
+        # asyncio.create_task(self.batch_message_builder_job())
 
     async def batch_message_builder_job(self):
         if len(self.pending_gossips) >= 1:
@@ -978,7 +978,7 @@ class Node:
         # # Add the job to the scheduler, which triggers every 10 seconds
         self.scheduler = AsyncIOScheduler()
         job = self.scheduler.add_job(
-            self.batch_message_builder_job, trigger="interval", seconds=5
+            self.batch_message_builder_job, trigger="interval", seconds=10
         )
         self.batched_message_job_id = job.id
 

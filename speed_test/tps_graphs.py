@@ -3,8 +3,6 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 import json
 
-matplotlib.use("TkAgg")
-
 
 def load_tuple(test_name: str, file_name: str) -> list:
     try:
@@ -36,8 +34,6 @@ delivered_with_batch_size = list(load_tuple("tps", "delivered_latency.json"))
 # ]
 
 delivered_with_batch_size = [tuple(sublist) for sublist in delivered_with_batch_size]
-
-print(delivered_with_batch_size)
 
 tps_calculation = [(x[0], 1) for x in delivered_with_batch_size]
 

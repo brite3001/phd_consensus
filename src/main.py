@@ -74,7 +74,7 @@ async def main():
     # # Fast    #
     # ###########
 
-    for i in range(1, 60):
+    for i in range(1, 150):
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
         if (i - 1) % NUM_NODES == docker_node_id - 1:
             logging.error(f"Fast {i}")
@@ -86,10 +86,12 @@ async def main():
             this_node.command(gos)
             this_node.command(gos)
 
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.8)
 
     this_node.scheduler.pause_job(this_node.increase_job_id)
     this_node.scheduler.pause_job(this_node.decrease_job_id)
+
+    await asyncio.sleep(15)
 
     url = "http://localhost:8000/current_latency/"
     r = requests.post(url, json={"data": this_node.current_latency_metadata})
