@@ -464,8 +464,8 @@ class Node:
             # filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
 
             if len(filtered_zlema) >= 15:
-                # rsi = int(RSI(14, filtered_zlema)[-1])
-                rsi = TSI(3, 6, filtered_zlema)[-1]
+                rsi = int(RSI(14, filtered_zlema)[-1])
+                # rsi = TSI(3, 6, filtered_zlema)[-1]
 
                 increase = random.uniform(1.01, 1.1)
 
@@ -514,7 +514,7 @@ class Node:
                 # )
 
                 # TSI -30
-                if rsi < 30 or filtered_zlema[-1] <= 0.25 * self.target_latency:
+                if rsi < 30:
                     self.current_latency = round(self.current_latency * decrease, 3)
 
                     self.my_logger.error(

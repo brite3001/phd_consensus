@@ -156,11 +156,7 @@ async def main():
 
     pad = 10**935
 
-    # COUNT ONLY THE FIRST GOSSIP FOR THE TPS CALCULATION.
-    # MAKE A NEW METADATA VAR THAT STORES GOSSIPS YOU'VE SENT AS THE CREATOR
-    # USE THAT TO GRAPH THE TPS.
-
-    for i in range(250):
+    for i in range(3000):
         print(f"Fast {i}")
         gos = Gossip(message_type="Gossip", timestamp=int(time.time()), padding=pad)
         n = random.choice(nodes)
@@ -179,7 +175,7 @@ async def main():
         node.scheduler.pause_job(node.increase_job_id)
         node.scheduler.pause_job(node.decrease_job_id)
 
-    await asyncio.sleep(30)
+    await asyncio.sleep(60)
 
     # for node in nodes:
     #     node.scheduler.resume_job(node.increase_job_id)
