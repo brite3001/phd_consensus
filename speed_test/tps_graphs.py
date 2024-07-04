@@ -35,7 +35,9 @@ delivered_with_batch_size = list(load_tuple("tps", "delivered_latency.json"))
 
 delivered_with_batch_size = [tuple(sublist) for sublist in delivered_with_batch_size]
 
-tps_calculation = [(x[0], 1) for x in delivered_with_batch_size]
+tps_timestamps = [x[0] for x in delivered_with_batch_size]
+
+interval = 1
 
 
 # Helper function to convert Unix timestamps to seconds from the start
@@ -44,11 +46,12 @@ def convert_to_seconds_from_start(timestamps):
     return [int(timestamp - start_time) for timestamp in timestamps]
 
 
-# Helper function to group data into intervals and calculate averages
-def group_and_average(data, interval=10):
+def group_and_average(data, interval):
     grouped = defaultdict(list)
+
     for timestamp, value in data:
-        interval_start = timestamp - (timestamp % interval)
+        # Align the timestamp to the nearest interval start
+        interval_start = int(timestamp // interval) * interval
         grouped[interval_start].append(value)
 
     averaged_data = []
@@ -58,6 +61,38 @@ def group_and_average(data, interval=10):
     return averaged_data
 
 
+def group_transactions(timestamps, interval=1):
+    # Normalize timestamps
+    start_time = timestamps[0]
+    normalized_times = [int(ts - start_time) for ts in timestamps]
+
+    # Group transactions by intervals
+    max_time = normalized_times[-1]
+    num_intervals = (max_time // interval) + 1
+
+    grouped_transactions = [0] * num_intervals
+
+    for time in normalized_times:
+        index = time // interval
+        if index < len(grouped_transactions):
+            grouped_transactions[index] += 1
+        else:
+            # Extend the grouped_transactions list to accommodate new interval
+            grouped_transactions.extend([0] * (index - len(grouped_transactions) + 1))
+            grouped_transactions[index] += 1
+
+    # Generate interval ranges
+    interval_ranges = [(i * interval) for i in range(len(grouped_transactions))]
+
+    return interval_ranges, grouped_transactions
+
+
+times, tps = group_transactions(tps_timestamps, interval)
+
+print(times)
+print(tps)
+
+
 # Convert Unix timestamps to seconds from the start
 latency_unix_timestamp, latency = zip(*smooth_latency)
 latency_unix_timestamp_seconds = convert_to_seconds_from_start(latency_unix_timestamp)
@@ -65,18 +100,24 @@ latency_unix_timestamp_seconds = convert_to_seconds_from_start(latency_unix_time
 batch_unix_timestamp, batch_size = zip(*delivered_with_batch_size)
 batch_unix_timestamp_seconds = convert_to_seconds_from_start(batch_unix_timestamp)
 
-tps_unix_timestamp, tps_size = zip(*tps_calculation)
-tps_unix_timestamp_seconds = convert_to_seconds_from_start(tps_unix_timestamp)
+# tps_unix_timestamp, tps_size = zip(*tps_calculation)
+# tps_unix_timestamp_seconds = convert_to_seconds_from_start(tps_unix_timestamp)
 
 # Group and average latency and batch size data
-average_latency = group_and_average(zip(latency_unix_timestamp_seconds, latency))
-average_batch_size = group_and_average(zip(batch_unix_timestamp_seconds, batch_size))
-average_tps = group_and_average(zip(tps_unix_timestamp_seconds, tps_size))
+average_latency = group_and_average(
+    zip(latency_unix_timestamp_seconds, latency), interval
+)
+average_batch_size = group_and_average(
+    zip(batch_unix_timestamp_seconds, batch_size), interval
+)
+# average_tps = group_and_average(zip(tps_unix_timestamp_seconds, tps_size))
+
+# print(average_tps)
 
 # Extract data for plotting
 latency_unix_timestamp, latency = zip(*average_latency)
 batch_unix_timestamp, batch_size = zip(*average_batch_size)
-tps_unix_timestamp, tps = zip(*average_tps)
+# tps_unix_timestamp, tps = zip(*average_tps)
 
 # Plotting
 plt.figure()
@@ -85,7 +126,7 @@ plt.figure()
 plt.plot(latency_unix_timestamp, latency, "b-", label="Latency")
 
 # Plotting latency as a line graph on primary y-axis
-plt.plot(tps_unix_timestamp, tps, "b-", label="TPS")
+plt.plot(times, tps, "b--", label="TPS")
 
 # Plotting batch size as a shaded area plot on primary y-axis
 plt.fill_between(

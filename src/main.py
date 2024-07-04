@@ -71,19 +71,21 @@ async def main():
 
     await asyncio.sleep(5)
 
+    pad = 10**935
     # ###########
     # # Fast    #
     # ###########
-    for i in range(1, 150):
-        gos = Gossip(message_type="Gossip", timestamp=int(time.time()))
-
+    for i in range(1, 2500):
         # Randomize the process of sending commands with a certain probability
-        if random.random() < 0.1:  # Adjust probability as needed
-            logging.error(f"Node {docker_node_id} sending commands at iteration {i}")
-            for _ in range(7):  # Send the command 7 times
+        if random.random() < 0.2:  # Adjust probability as needed
+            # logging.error(f"Node {docker_node_id} sending commands at iteration {i}")
+            for _ in range(10):  # Send the command 7 times
+                gos = Gossip(
+                    message_type="Gossip", timestamp=int(time.time()), padding=pad
+                )
                 this_node.command(gos)
 
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(0.5)
 
     this_node.scheduler.pause_job(this_node.increase_job_id)
     this_node.scheduler.pause_job(this_node.decrease_job_id)

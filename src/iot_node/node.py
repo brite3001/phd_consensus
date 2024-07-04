@@ -104,7 +104,7 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_latency: int = 15
+    target_latency: int = 10
     current_latency: int = field(factory=int)
     max_gossip_timeout_time = 60
     node_selection_type = "normal"
@@ -531,8 +531,6 @@ class Node:
             # filtered_zlema = [x for x in EMA(14, self.block_times) if x]
             # filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
 
-            self.my_logger.error(f"Congestion Control [{round(filtered_zlema[-1], 3)}]")
-
             if len(filtered_zlema) >= 15:
                 rsi = int(RSI(14, filtered_zlema)[-1])
                 # rsi = TSI(3, 6, filtered_zlema)[-1]
@@ -544,12 +542,12 @@ class Node:
                 )
 
                 # Stops current_latency increase when network has low latency.
-                network_not_slow = (
+                high_latency = (
                     False if filtered_zlema[-1] < self.target_latency else True
                 )
 
                 # TSI +30
-                if rsi > 70 and dont_exceed_max_target and network_not_slow:
+                if rsi > 70 and dont_exceed_max_target and high_latency:
                     self.current_latency = round(self.current_latency * increase, 3)
                     self.my_logger.error(
                         f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
@@ -575,12 +573,17 @@ class Node:
 
                 decrease = random.uniform(0.9, 0.99)
 
-                # dont_go_below_target = (
-                #     self.current_latency * decrease >= self.target_latency
-                # )
-
                 # TSI -30
+                # Trend is downwards, start slowly increase message sending frequency
                 if rsi < 30:
+                    self.current_latency = round(self.current_latency * decrease, 3)
+
+                    self.my_logger.error(
+                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.current_latency}"
+                    )
+                    self.job_time_change_flag = True
+                # Latency is very low, increase message sending frequency
+                elif filtered_zlema[-1] < 0.25 * self.target_latency:
                     self.current_latency = round(self.current_latency * decrease, 3)
 
                     self.my_logger.error(
@@ -969,7 +972,7 @@ class Node:
         self.running = True
         asyncio.create_task(self.router_listener())
         asyncio.create_task(self.subscriber_listener())
-        random.seed(self.random_seed)
+        # random.seed(self.random_seed)
 
         await asyncio.sleep(random.randint(1, 3))
 
@@ -978,7 +981,7 @@ class Node:
         # # Add the job to the scheduler, which triggers every 10 seconds
         self.scheduler = AsyncIOScheduler()
         job = self.scheduler.add_job(
-            self.batch_message_builder_job, trigger="interval", seconds=10
+            self.batch_message_builder_job, trigger="interval", seconds=3
         )
         self.batched_message_job_id = job.id
 
