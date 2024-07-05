@@ -21,13 +21,16 @@ def load_tuple(test_name: str, file_name: str) -> list:
         return []
 
 
-smooth_latency = list(load_tuple("tps", "current_latency.json"))
+test_name = "GOLD_DATA_LAPTOP_CCA"
+interval = 10
+
+smooth_latency = list(load_tuple(test_name, "current_latency.json"))
 
 # print(smooth_latency)
 
 smooth_latency = [tuple(sublist) for sublist in smooth_latency]
 
-delivered_with_batch_size = list(load_tuple("tps", "delivered_latency.json"))
+delivered_with_batch_size = list(load_tuple(test_name, "delivered_latency.json"))
 
 # delivered_with_batch_size = [
 #     item for sublist in delivered_with_batch_size for item in sublist
@@ -36,8 +39,6 @@ delivered_with_batch_size = list(load_tuple("tps", "delivered_latency.json"))
 delivered_with_batch_size = [tuple(sublist) for sublist in delivered_with_batch_size]
 
 tps_timestamps = [x[0] for x in delivered_with_batch_size]
-
-interval = 1
 
 
 # Helper function to convert Unix timestamps to seconds from the start
