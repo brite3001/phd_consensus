@@ -475,7 +475,7 @@ class Node:
 
     async def batched_message_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
-        # asyncio.create_task(self.batch_message_builder_job())
+        asyncio.create_task(self.batch_message_builder_job())
 
     async def batch_message_builder_job(self):
         if len(self.pending_gossips) >= 1:
@@ -531,28 +531,30 @@ class Node:
             # filtered_zlema = [x for x in EMA(14, self.block_times) if x]
             # filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
 
-            if len(filtered_zlema) >= 15:
-                rsi = int(RSI(14, filtered_zlema)[-1])
-                # rsi = TSI(3, 6, filtered_zlema)[-1]
+            self.my_logger.error(f"Smooth Latency [{round(filtered_zlema[-1], 3)}]")
 
-                increase = random.uniform(1.01, 1.1)
+            # if len(filtered_zlema) >= 15:
+            #     rsi = int(RSI(14, filtered_zlema)[-1])
+            #     # rsi = TSI(3, 6, filtered_zlema)[-1]
 
-                dont_exceed_max_target = (
-                    self.current_latency * increase < self.max_gossip_timeout_time
-                )
+            #     increase = random.uniform(1.01, 1.1)
 
-                # Stops current_latency increase when network has low latency.
-                high_latency = (
-                    False if filtered_zlema[-1] < self.target_latency else True
-                )
+            #     dont_exceed_max_target = (
+            #         self.current_latency * increase < self.max_gossip_timeout_time
+            #     )
 
-                # TSI +30
-                if rsi > 70 and dont_exceed_max_target and high_latency:
-                    self.current_latency = round(self.current_latency * increase, 3)
-                    self.my_logger.error(
-                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
-                    )
-                    self.job_time_change_flag = True
+            #     # Stops current_latency increase when network has low latency.
+            #     high_latency = (
+            #         False if filtered_zlema[-1] < self.target_latency else True
+            #     )
+
+            #     # TSI +30
+            #     if rsi > 70 and dont_exceed_max_target and high_latency:
+            #         self.current_latency = round(self.current_latency * increase, 3)
+            #         self.my_logger.error(
+            #             f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
+            #         )
+            #         self.job_time_change_flag = True
 
             self.current_latency_metadata.append((time.time(), filtered_zlema[-1]))
 
@@ -567,29 +569,29 @@ class Node:
             # filtered_zlema = [x for x in EMA(21, self.block_times) if x]
             # filtered_zlema = [x for x in KAMA(21, 2, 30, self.block_times) if x]
 
-            if len(filtered_zlema) >= 21:
-                rsi = int(RSI(21, filtered_zlema)[-1])
-                # rsi = TSI(9, 15, filtered_zlema)[-1]
+            # if len(filtered_zlema) >= 21:
+            #     rsi = int(RSI(21, filtered_zlema)[-1])
+            #     # rsi = TSI(9, 15, filtered_zlema)[-1]
 
-                decrease = random.uniform(0.9, 0.99)
+            #     decrease = random.uniform(0.9, 0.99)
 
-                # TSI -30
-                # Trend is downwards, start slowly increase message sending frequency
-                if rsi < 30:
-                    self.current_latency = round(self.current_latency * decrease, 3)
+            #     # TSI -30
+            #     # Trend is downwards, start slowly increase message sending frequency
+            #     if rsi < 30:
+            #         self.current_latency = round(self.current_latency * decrease, 3)
 
-                    self.my_logger.error(
-                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.current_latency}"
-                    )
-                    self.job_time_change_flag = True
-                # Latency is very low, increase message sending frequency
-                elif filtered_zlema[-1] < 0.25 * self.target_latency:
-                    self.current_latency = round(self.current_latency * decrease, 3)
+            #         self.my_logger.error(
+            #             f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.current_latency}"
+            #         )
+            #         self.job_time_change_flag = True
+            #     # Latency is very low, increase message sending frequency
+            #     elif filtered_zlema[-1] < 0.25 * self.target_latency:
+            #         self.current_latency = round(self.current_latency * decrease, 3)
 
-                    self.my_logger.error(
-                        f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.current_latency}"
-                    )
-                    self.job_time_change_flag = True
+            #         self.my_logger.error(
+            #             f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.current_latency}"
+            #         )
+            #         self.job_time_change_flag = True
 
             self.current_latency_metadata.append((time.time(), filtered_zlema[-1]))
 

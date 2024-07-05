@@ -19,8 +19,8 @@ async def upload_current_latency_data(cl_data: DataModel):
     print(cl_data)
     try:
         # Check if directory exists, create if it doesn't
-        if not os.path.exists("data"):
-            os.makedirs("data")
+        if not os.path.exists("tps"):
+            os.makedirs("tps")
 
         # Define the path to the JSON file
         file_path = os.path.join("tps", "current_latency.json")
@@ -55,8 +55,8 @@ async def upload_latency_data(dl_data: DataModel):
     print(dl_data)
     try:
         # Check if directory exists, create if it doesn't
-        if not os.path.exists("data"):
-            os.makedirs("data")
+        if not os.path.exists("tps"):
+            os.makedirs("tps")
 
         # Define the path to the JSON file
         file_path = os.path.join("tps", "delivered_latency.json")

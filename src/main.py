@@ -75,17 +75,17 @@ async def main():
     # ###########
     # # Fast    #
     # ###########
-    for i in range(1, 2500):
+    for i in range(1, 1000):
         # Randomize the process of sending commands with a certain probability
         if random.random() < 0.2:  # Adjust probability as needed
-            # logging.error(f"Node {docker_node_id} sending commands at iteration {i}")
-            for _ in range(10):  # Send the command 7 times
+            logging.error(f"Node {docker_node_id} sending commands at iteration {i}")
+            for _ in range(10):
                 gos = Gossip(
                     message_type="Gossip", timestamp=int(time.time()), padding=pad
                 )
                 this_node.command(gos)
 
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.6)
 
     this_node.scheduler.pause_job(this_node.increase_job_id)
     this_node.scheduler.pause_job(this_node.decrease_job_id)
@@ -97,6 +97,7 @@ async def main():
     print(r.status_code)
 
     url = "http://localhost:8000/delivered_latency/"
+    print(this_node.delivered_msg_metadata)
     r = requests.post(url, json={"data": this_node.delivered_msg_metadata})
     print(r.status_code)
 
