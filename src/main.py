@@ -71,6 +71,10 @@ async def main():
 
     await asyncio.sleep(5)
 
+    ### ASK NODE FOR THEIR MOST RECENT LATENCY VALUE WHEN SENDING A BM
+    ### TAKE THESE VALUES AND SAVGOL THEM LIKE OUR OWN RTT
+    ### TAKE A WEIGHTED AVERAGE OF THE TWO
+
     pad = 10**935
     # ###########
     # # Fast    #

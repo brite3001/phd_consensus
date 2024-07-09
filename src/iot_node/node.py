@@ -291,6 +291,8 @@ class Node:
                         )
                 else:
                     self.my_logger.debug(f"Already received BM: {bm_hash}")
+
+                router_response = self.current_latency.encode()
             elif msg["message_type"] == "PeerDiscovery":
                 pd = PeerDiscovery(**msg)
                 creator_id = self._crypto_keys.ecdsa_tuple_to_id(pd.ecdsa_public_key)
