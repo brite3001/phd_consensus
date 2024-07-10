@@ -8,6 +8,7 @@ from talipp.indicators import ZLEMA, RSI, SMA, EMA, KAMA, TEMA, TSI
 from scipy.stats import poisson, norm
 from typing import Union
 from sortedcontainers import SortedSet
+from collections import deque
 from async_timeout import timeout
 import base64
 import asyncio
@@ -105,7 +106,6 @@ class Node:
 
     # Tuneable Values
     target_latency: int = 10
-    current_latency: int = field(factory=int)
     max_gossip_timeout_time = 60
     node_selection_type = "normal"
     random_seed = 2929
@@ -117,8 +117,10 @@ class Node:
     batched_message_job_id = field(init=False)
     increase_job_id = field(init=False)
     decrease_job_id = field(init=False)
-    block_times: list = field(factory=list)
+    block_times: deque = field(factory=lambda: deque(maxlen=100))
     job_time_change_flag: bool = field(factory=bool)
+    current_latency: int = field(factory=int)
+    peers_latency: deque = field(factory=lambda: deque(maxlen=100))
 
     # SBRB Specific Variables #
     received_messages: dict[str, BatchedMessages] = field(factory=dict)
@@ -292,7 +294,7 @@ class Node:
                 else:
                     self.my_logger.debug(f"Already received BM: {bm_hash}")
 
-                router_response = self.current_latency.encode()
+                router_response = str(self.current_latency).encode()
             elif msg["message_type"] == "PeerDiscovery":
                 pd = PeerDiscovery(**msg)
                 creator_id = self._crypto_keys.ecdsa_tuple_to_id(pd.ecdsa_public_key)
@@ -445,7 +447,8 @@ class Node:
         # Allow access to this socket one message at a time
         async with self.rep_lock:
             req_socket.write([message, b"", creator_sig, b"", sender_sig])
-            await req_socket.read()
+            peer_current_latency = await req_socket.read()
+            self.peers_latency.append(float(peer_current_latency[0].decode()))
 
     async def send_signed_message(self, message: Echo, receiver: str):
         # the receiver is an ECDSA ID
@@ -526,76 +529,97 @@ class Node:
 
         await asyncio.sleep(random.uniform(0.1, 2.5))
         # Increase the block time if we start overshooting the target
-        if len(self.block_times) >= 20:
+        if len(self.block_times) >= 20 and len(self.peers_latency) >= 20:
+            # filtered_zlema = savgol_filter(self.block_times, 14, 1)
             # filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
-            filtered_zlema = savgol_filter(self.block_times, 14, 1)
             # filtered_zlema = [x for x in SMA(14, self.block_times) if x]
             # filtered_zlema = [x for x in EMA(14, self.block_times) if x]
             # filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
 
-            self.my_logger.error(f"Smooth Latency [{round(filtered_zlema[-1], 3)}]")
+            our_smooth_latency = savgol_filter(self.block_times, 14, 1)
+            our_peers_smooth_latency = savgol_filter(self.peers_latency, 14, 1)
 
-            # if len(filtered_zlema) >= 15:
-            #     rsi = int(RSI(14, filtered_zlema)[-1])
-            #     # rsi = TSI(3, 6, filtered_zlema)[-1]
+            if len(our_smooth_latency) >= 15 and len(our_peers_smooth_latency) >= 15:
+                # rsi = int(RSI(21, filtered_zlema)[-1])
+                # rsi = TSI(3, 6, filtered_zlema)[-1]
 
-            #     increase = random.uniform(1.01, 1.1)
+                our_latency_rsi = int(RSI(14, our_smooth_latency)[-1])
+                our_peers_latency_rsi = int(RSI(14, our_peers_smooth_latency)[-1])
 
-            #     dont_exceed_max_target = (
-            #         self.current_latency * increase < self.max_gossip_timeout_time
-            #     )
+                weighted_rsi = round(
+                    (our_latency_rsi * 0.6) + (our_peers_latency_rsi * 0.4), 3
+                )
 
-            #     # Stops current_latency increase when network has low latency.
-            #     high_latency = (
-            #         False if filtered_zlema[-1] < self.target_latency else True
-            #     )
+                increase = random.uniform(1.01, 1.1)
 
-            #     # TSI +30
-            #     if rsi > 70 and dont_exceed_max_target and high_latency:
-            #         self.current_latency = round(self.current_latency * increase, 3)
-            #         self.my_logger.error(
-            #             f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (/\) - New Target: {self.current_latency}"
-            #         )
-            #         self.job_time_change_flag = True
+                dont_exceed_max_target = (
+                    self.current_latency * increase < self.max_gossip_timeout_time
+                )
 
-            self.current_latency_metadata.append((time.time(), filtered_zlema[-1]))
+                # Stops current_latency increase when network has low latency.
+                high_latency = (
+                    False if our_smooth_latency[-1] < self.target_latency else True
+                )
+
+                # TSI +30
+                if weighted_rsi > 70 and dont_exceed_max_target and high_latency:
+                    self.current_latency = round(self.current_latency * increase, 3)
+                    self.my_logger.error(
+                        f"Congestion Control [{round(our_smooth_latency[-1], 3)}] - [{weighted_rsi}] (/\) - New Target: {self.current_latency}"
+                    )
+                    self.job_time_change_flag = True
+
+            self.current_latency_metadata.append((time.time(), our_smooth_latency[-1]))
 
     async def decrease_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
 
         # Increase the block time if we start overshooting the target
-        if len(self.block_times) >= 45:
+        if len(self.block_times) >= 45 and len(self.peers_latency) >= 45:
             # filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
-            filtered_zlema = savgol_filter(self.block_times, 21, 1)
+            # filtered_zlema = savgol_filter(self.block_times, 21, 1)
             # filtered_zlema = [x for x in SMA(22, self.block_times) if x]
             # filtered_zlema = [x for x in EMA(21, self.block_times) if x]
             # filtered_zlema = [x for x in KAMA(21, 2, 30, self.block_times) if x]
 
-            # if len(filtered_zlema) >= 21:
-            #     rsi = int(RSI(21, filtered_zlema)[-1])
-            #     # rsi = TSI(9, 15, filtered_zlema)[-1]
+            our_smooth_latency = savgol_filter(self.block_times, 14, 1)
+            our_peers_smooth_latency = savgol_filter(self.peers_latency, 14, 1)
 
-            #     decrease = random.uniform(0.9, 0.99)
+            if len(our_smooth_latency) >= 21 and len(our_peers_smooth_latency) >= 21:
+                # rsi = int(RSI(21, filtered_zlema)[-1])
+                # rsi = TSI(9, 15, filtered_zlema)[-1]
 
-            #     # TSI -30
-            #     # Trend is downwards, start slowly increase message sending frequency
-            #     if rsi < 30:
-            #         self.current_latency = round(self.current_latency * decrease, 3)
+                our_latency_rsi = int(RSI(14, our_smooth_latency)[-1])
+                our_peers_latency_rsi = int(RSI(14, our_peers_smooth_latency)[-1])
 
-            #         self.my_logger.error(
-            #             f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.current_latency}"
-            #         )
-            #         self.job_time_change_flag = True
-            #     # Latency is very low, increase message sending frequency
-            #     elif filtered_zlema[-1] < 0.25 * self.target_latency:
-            #         self.current_latency = round(self.current_latency * decrease, 3)
+                weighted_rsi = round(
+                    (our_latency_rsi * 0.6) + (our_peers_latency_rsi * 0.4), 3
+                )
 
-            #         self.my_logger.error(
-            #             f"Congestion Control [{round(filtered_zlema[-1], 3)}] - [{rsi}] (\/) - New Target: {self.current_latency}"
-            #         )
-            #         self.job_time_change_flag = True
+                decrease = random.uniform(0.9, 0.99)
 
-            self.current_latency_metadata.append((time.time(), filtered_zlema[-1]))
+                # TSI -30
+                # Trend is downwards, start slowly increase message sending frequency
+                if (
+                    weighted_rsi < 30
+                    or self.current_latency <= 0.25 * self.target_latency
+                ):
+                    self.current_latency = round(self.current_latency * decrease, 3)
+
+                    self.my_logger.error(
+                        f"Congestion Control [{round(our_smooth_latency[-1], 3)}] - [{weighted_rsi}] (\/) - New Target: {self.current_latency}"
+                    )
+                    self.job_time_change_flag = True
+                # Latency is very low, increase message sending frequency
+                elif our_smooth_latency[-1] < 0.25 * self.target_latency:
+                    self.current_latency = round(self.current_latency * decrease, 3)
+
+                    self.my_logger.error(
+                        f"Congestion Control [{round(our_smooth_latency[-1], 3)}] - [{weighted_rsi}] (\/) - New Target: {self.current_latency}"
+                    )
+                    self.job_time_change_flag = True
+
+            self.current_latency_metadata.append((time.time(), our_smooth_latency[-1]))
 
     ####################
     # AT2 Consensus    #
