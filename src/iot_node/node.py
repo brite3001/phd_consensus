@@ -546,6 +546,12 @@ class Node:
                 our_latency_rsi = int(RSI(14, our_smooth_latency)[-1])
                 our_peers_latency_rsi = int(RSI(14, our_peers_smooth_latency)[-1])
 
+                weighted_latest_latency = round(
+                    (our_smooth_latency[-1] * 0.6)
+                    + (our_peers_smooth_latency[-1] * 0.4),
+                    3,
+                )
+
                 weighted_rsi = round(
                     (our_latency_rsi * 0.6) + (our_peers_latency_rsi * 0.4), 3
                 )
@@ -565,11 +571,11 @@ class Node:
                 if weighted_rsi > 70 and dont_exceed_max_target and high_latency:
                     self.current_latency = round(self.current_latency * increase, 3)
                     self.my_logger.error(
-                        f"Congestion Control [{round(our_smooth_latency[-1], 3)}] - [{weighted_rsi}] (/\) - New Target: {self.current_latency}"
+                        f"Congestion Control [{weighted_latest_latency}] - [{weighted_rsi}] (/\) - New Target: {self.current_latency}"
                     )
                     self.job_time_change_flag = True
 
-            self.current_latency_metadata.append((time.time(), our_smooth_latency[-1]))
+            self.current_latency_metadata.append((time.time(), weighted_latest_latency))
 
     async def decrease_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
@@ -584,6 +590,10 @@ class Node:
 
             our_smooth_latency = savgol_filter(self.block_times, 14, 1)
             our_peers_smooth_latency = savgol_filter(self.peers_latency, 14, 1)
+
+            weighted_latest_latency = round(
+                (our_smooth_latency[-1] * 0.6) + (our_peers_smooth_latency[-1] * 0.4), 3
+            )
 
             if len(our_smooth_latency) >= 21 and len(our_peers_smooth_latency) >= 21:
                 # rsi = int(RSI(21, filtered_zlema)[-1])
@@ -607,7 +617,7 @@ class Node:
                     self.current_latency = round(self.current_latency * decrease, 3)
 
                     self.my_logger.error(
-                        f"Congestion Control [{round(our_smooth_latency[-1], 3)}] - [{weighted_rsi}] (\/) - New Target: {self.current_latency}"
+                        f"Congestion Control [{weighted_latest_latency}] - [{weighted_rsi}] (\/) - New Target: {self.current_latency}"
                     )
                     self.job_time_change_flag = True
                 # Latency is very low, increase message sending frequency
@@ -615,11 +625,11 @@ class Node:
                     self.current_latency = round(self.current_latency * decrease, 3)
 
                     self.my_logger.error(
-                        f"Congestion Control [{round(our_smooth_latency[-1], 3)}] - [{weighted_rsi}] (\/) - New Target: {self.current_latency}"
+                        f"Congestion Control [{weighted_latest_latency}] - [{weighted_rsi}] (\/) - New Target: {self.current_latency}"
                     )
                     self.job_time_change_flag = True
 
-            self.current_latency_metadata.append((time.time(), our_smooth_latency[-1]))
+            self.current_latency_metadata.append((time.time(), weighted_latest_latency))
 
     ####################
     # AT2 Consensus    #
