@@ -89,7 +89,7 @@ async def main():
                 )
                 this_node.command(gos)
 
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(random.randint(3, 6))
 
     this_node.scheduler.pause_job(this_node.increase_job_id)
     this_node.scheduler.pause_job(this_node.decrease_job_id)

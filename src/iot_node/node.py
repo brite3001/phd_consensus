@@ -804,6 +804,7 @@ class Node:
                 f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash} got: {ready_subscribe.intersection(self.ready_replies[batched_message_hash])} needed: {self.at2_config.delivery_threshold}"
             )
             for peer in self.recently_missed_delivery:
+                print(peer)
                 self.recently_missed_delivery[peer] = True
 
         self.our_latency.append(retry_time_ready + retry_time_echo)
