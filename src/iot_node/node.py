@@ -571,18 +571,31 @@ class Node:
             our_smooth_latency = savgol_filter(self.our_latency, 14, 1)
             our_peers_smooth_latency = savgol_filter(self.peers_latency, 14, 1)
 
+            weighted_latest_latency = round(
+                (our_smooth_latency[-1] * 0.6) + (our_peers_smooth_latency[-1] * 0.4),
+                3,
+            )
+
+            if (
+                # Are our estimates falling behind fast increasing latency?
+                self.current_latency <= 0.5 * our_smooth_latency
+                and self.current_latency <= 0.5 * our_peers_smooth_latency
+            ):
+                if self.current_latency * 2 < self.max_gossip_timeout_time * 0.85:
+                    # Make sure current latency stays below max gossip
+                    self.current_latency *= 2
+                    self.my_logger.error(
+                        f"[{weighted_latest_latency}] [Latency Fastforward] (/\) - New Target: {self.current_latency}"
+                    )
+
+                    self.job_time_change_flag = True
+
             if len(our_smooth_latency) >= 15 and len(our_peers_smooth_latency) >= 15:
                 # rsi = int(RSI(21, filtered_zlema)[-1])
                 # rsi = TSI(3, 6, filtered_zlema)[-1]
 
                 our_latency_rsi = int(RSI(14, our_smooth_latency)[-1])
                 our_peers_latency_rsi = int(RSI(14, our_peers_smooth_latency)[-1])
-
-                weighted_latest_latency = round(
-                    (our_smooth_latency[-1] * 0.6)
-                    + (our_peers_smooth_latency[-1] * 0.4),
-                    3,
-                )
 
                 increase = random.uniform(1.01, 1.1)
 
