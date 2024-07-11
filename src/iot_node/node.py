@@ -743,6 +743,7 @@ class Node:
         # Step 9
         # Using intersection to only count echos from nodes in our echo_subscribe set() we defined earlier
         retry_time_echo = 0
+        missed_echo = False
         while (
             len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))
             < self.at2_config.ready_threshold
@@ -770,6 +771,10 @@ class Node:
                 f"Didnt reach echo threshold for: {batched_message_hash} got: {echo_subscribe.intersection(self.echo_replies[batched_message_hash])} needed: {self.at2_config.ready_threshold}"
             )
 
+            for peer in self.recently_missed_delivery:
+                print(peer)
+                self.recently_missed_delivery[peer] = True
+
         # Step 10
         # Using intersection to only count ready messages from nodes in our ready_replies set() we defined earlier
         retry_time_ready = 0
@@ -778,6 +783,8 @@ class Node:
             < self.at2_config.delivery_threshold
         ):
             if retry_time_ready == self.max_gossip_timeout_time:
+                break
+            elif missed_echo:
                 break
 
             await asyncio.sleep(0.1)
@@ -803,9 +810,12 @@ class Node:
             self.my_logger.warning(
                 f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash} got: {ready_subscribe.intersection(self.ready_replies[batched_message_hash])} needed: {self.at2_config.delivery_threshold}"
             )
-            for peer in self.recently_missed_delivery:
-                print(peer)
-                self.recently_missed_delivery[peer] = True
+
+            # Dount double enter missed delivery if the echo also failed
+            if not missed_echo:
+                for peer in self.recently_missed_delivery:
+                    print(peer)
+                    self.recently_missed_delivery[peer] = True
 
         self.our_latency.append(retry_time_ready + retry_time_echo)
         self.received_msg_metadata.append(
