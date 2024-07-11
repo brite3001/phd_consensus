@@ -576,10 +576,12 @@ class Node:
                 3,
             )
 
+            # Latency ca
+
             if (
                 # Are our estimates falling behind fast increasing latency?
-                self.current_latency <= 0.5 * our_smooth_latency
-                and self.current_latency <= 0.5 * our_peers_smooth_latency
+                self.current_latency <= 0.5 * our_smooth_latency[-1]
+                and self.current_latency <= 0.5 * our_peers_smooth_latency[-1]
             ):
                 if self.current_latency * 2 < self.max_gossip_timeout_time * 0.85:
                     # Make sure current latency stays below max gossip
@@ -589,8 +591,7 @@ class Node:
                     )
 
                     self.job_time_change_flag = True
-
-            if len(our_smooth_latency) >= 15 and len(our_peers_smooth_latency) >= 15:
+            elif len(our_smooth_latency) >= 15 and len(our_peers_smooth_latency) >= 15:
                 # rsi = int(RSI(21, filtered_zlema)[-1])
                 # rsi = TSI(3, 6, filtered_zlema)[-1]
 
