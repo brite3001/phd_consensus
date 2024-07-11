@@ -482,7 +482,6 @@ class Node:
                     self.peers_latency.append(peer_latency)
 
                 if recently_missed:
-                    print("recently missed +1")
                     if self.current_latency + 1 < self.max_gossip_timeout_time * 0.85:
                         self.current_latency += 1
             elif status == "OK":
@@ -786,7 +785,6 @@ class Node:
             )
 
             for peer in self.recently_missed_delivery:
-                print(peer)
                 self.recently_missed_delivery[peer] = True
 
         # Step 10
