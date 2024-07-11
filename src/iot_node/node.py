@@ -105,7 +105,8 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_latency: int = 10
+    target_latency: int = 5
+    minimum_latency: int = 1
     max_gossip_timeout_time = 60
     node_selection_type = "normal"
     random_seed = 2929
@@ -117,10 +118,13 @@ class Node:
     batched_message_job_id = field(init=False)
     increase_job_id = field(init=False)
     decrease_job_id = field(init=False)
-    block_times: deque = field(factory=lambda: deque(maxlen=100))
     job_time_change_flag: bool = field(factory=bool)
     current_latency: int = field(factory=int)
-    peers_latency: deque = field(factory=lambda: deque(maxlen=100))
+    peers_latency: deque = field(factory=lambda: deque(maxlen=500))
+    our_latency: deque = field(factory=lambda: deque(maxlen=500))
+    recently_missed_delivery: defaultdict[bool] = field(
+        factory=lambda: defaultdict(bool)
+    )
 
     # SBRB Specific Variables #
     received_messages: dict[str, BatchedMessages] = field(factory=dict)
@@ -221,6 +225,7 @@ class Node:
                 )
 
             self.sockets[ecdsa_id] = PeerSocket(message.router_address, ecdsa_id, req)
+            self.recently_missed_delivery[ecdsa_id] = False
 
         elif isinstance(message, DirectMessage):
             self.my_logger.info(message)
@@ -258,6 +263,12 @@ class Node:
                 bm = BatchedMessages(**msg)
                 bm_hash = str(hash(bm))
 
+                router_response = json.dumps(
+                    {
+                        "status": "OK",
+                    }
+                ).encode()
+
                 if bm_hash not in self.received_messages:
                     creator_signature = json.loads(recv[4].decode())
                     sender_signature = json.loads(recv[6].decode())
@@ -287,6 +298,19 @@ class Node:
                         )
 
                         asyncio.create_task(self.inbox(bm))
+
+                        router_response = json.dumps(
+                            {
+                                "status": "CongestionUpdate",
+                                "current_latency": self.current_latency,
+                                "recently_missed": self.recently_missed_delivery[
+                                    sender_id
+                                ],
+                            }
+                        ).encode()
+
+                        self.recently_missed_delivery[sender_id] = False
+
                     else:
                         self.my_logger.error(
                             f"Signature verification failed for {bm} | creator {creator_id} | sender {sender_id}"
@@ -294,7 +318,6 @@ class Node:
                 else:
                     self.my_logger.debug(f"Already received BM: {bm_hash}")
 
-                router_response = str(self.current_latency).encode()
             elif msg["message_type"] == "PeerDiscovery":
                 pd = PeerDiscovery(**msg)
                 creator_id = self._crypto_keys.ecdsa_tuple_to_id(pd.ecdsa_public_key)
@@ -448,7 +471,24 @@ class Node:
         async with self.rep_lock:
             req_socket.write([message, b"", creator_sig, b"", sender_sig])
             peer_current_latency = await req_socket.read()
-            self.peers_latency.append(float(peer_current_latency[0].decode()))
+
+            congestion_info = json.loads(peer_current_latency[0].decode())
+            status = congestion_info["status"]
+
+            if status == "CongestionUpdate":
+                peer_latency = float(congestion_info["current_latency"])
+                recently_missed = congestion_info["recently_missed"]
+                if peer_latency > 0.0:
+                    self.peers_latency.append(peer_latency)
+
+                if recently_missed:
+                    print("recently missed +1")
+                    if self.current_latency + 1 < self.max_gossip_timeout_time * 0.85:
+                        self.current_latency += 1
+            elif status == "OK":
+                pass
+            else:
+                self.my_logger.warning("Received unknown response after sending BM")
 
     async def send_signed_message(self, message: Echo, receiver: str):
         # the receiver is an ECDSA ID
@@ -480,7 +520,7 @@ class Node:
 
     async def batched_message_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
-        asyncio.create_task(self.batch_message_builder_job())
+        # asyncio.create_task(self.batch_message_builder_job())
 
     async def batch_message_builder_job(self):
         if len(self.pending_gossips) >= 1:
@@ -519,24 +559,16 @@ class Node:
     async def increasing_congestion_monitoring_job(self):
         from scipy.signal import savgol_filter
 
-        # mee = [random.uniform(1.01, 1.1) for _ in range(45)]
-        # mee = SMA(21, mee)
-        # print(mee)
-        # print(len(mee))
-        # tsi = TSI(9, 15, mee)
-        # print(tsi)
-        # print(tsi[-1])
-
         await asyncio.sleep(random.uniform(0.1, 2.5))
         # Increase the block time if we start overshooting the target
-        if len(self.block_times) >= 20 and len(self.peers_latency) >= 20:
-            # filtered_zlema = savgol_filter(self.block_times, 14, 1)
-            # filtered_zlema = kalman_filter(ZLEMA(14, self.block_times))
-            # filtered_zlema = [x for x in SMA(14, self.block_times) if x]
-            # filtered_zlema = [x for x in EMA(14, self.block_times) if x]
-            # filtered_zlema = [x for x in KAMA(14, 2, 30, self.block_times) if x]
+        if len(self.our_latency) >= 20 and len(self.peers_latency) >= 20:
+            # filtered_zlema = savgol_filter(self.our_latency, 14, 1)
+            # filtered_zlema = kalman_filter(ZLEMA(14, self.our_latency))
+            # filtered_zlema = [x for x in SMA(14, self.our_latency) if x]
+            # filtered_zlema = [x for x in EMA(14, self.our_latency) if x]
+            # filtered_zlema = [x for x in KAMA(14, 2, 30, self.our_latency) if x]
 
-            our_smooth_latency = savgol_filter(self.block_times, 14, 1)
+            our_smooth_latency = savgol_filter(self.our_latency, 14, 1)
             our_peers_smooth_latency = savgol_filter(self.peers_latency, 14, 1)
 
             if len(our_smooth_latency) >= 15 and len(our_peers_smooth_latency) >= 15:
@@ -552,26 +584,27 @@ class Node:
                     3,
                 )
 
-                weighted_rsi = round(
-                    (our_latency_rsi * 0.6) + (our_peers_latency_rsi * 0.4), 3
-                )
-
                 increase = random.uniform(1.01, 1.1)
 
                 dont_exceed_max_target = (
-                    self.current_latency * increase < self.max_gossip_timeout_time
+                    self.current_latency * increase
+                    < self.max_gossip_timeout_time * 0.85
                 )
 
                 # Stops current_latency increase when network has low latency.
-                high_latency = (
+                latency_under_target = (
                     False if our_smooth_latency[-1] < self.target_latency else True
                 )
 
                 # TSI +30
-                if weighted_rsi > 70 and dont_exceed_max_target and high_latency:
+                if (
+                    (our_latency_rsi > 70 or our_peers_latency_rsi > 70)
+                    and dont_exceed_max_target
+                    and latency_under_target
+                ):
                     self.current_latency = round(self.current_latency * increase, 3)
                     self.my_logger.error(
-                        f"Congestion Control [{weighted_latest_latency}] - [{weighted_rsi}] (/\) - New Target: {self.current_latency}"
+                        f"[{weighted_latest_latency}] [High RSI] [{our_latency_rsi}] / [{our_peers_latency_rsi}] (/\) - New Target: {self.current_latency}"
                     )
                     self.job_time_change_flag = True
 
@@ -581,15 +614,15 @@ class Node:
         from scipy.signal import savgol_filter
 
         # Increase the block time if we start overshooting the target
-        if len(self.block_times) >= 45 and len(self.peers_latency) >= 45:
-            # filtered_zlema = kalman_filter(ZLEMA(21, self.block_times))
-            # filtered_zlema = savgol_filter(self.block_times, 21, 1)
-            # filtered_zlema = [x for x in SMA(22, self.block_times) if x]
-            # filtered_zlema = [x for x in EMA(21, self.block_times) if x]
-            # filtered_zlema = [x for x in KAMA(21, 2, 30, self.block_times) if x]
+        if len(self.our_latency) >= 45 and len(self.peers_latency) >= 45:
+            # filtered_zlema = kalman_filter(ZLEMA(21, self.our_latency))
+            # filtered_zlema = savgol_filter(self.our_latency, 21, 1)
+            # filtered_zlema = [x for x in SMA(22, self.our_latency) if x]
+            # filtered_zlema = [x for x in EMA(21, self.our_latency) if x]
+            # filtered_zlema = [x for x in KAMA(21, 2, 30, self.our_latency) if x]
 
-            our_smooth_latency = savgol_filter(self.block_times, 14, 1)
-            our_peers_smooth_latency = savgol_filter(self.peers_latency, 14, 1)
+            our_smooth_latency = savgol_filter(self.our_latency, 21, 1)
+            our_peers_smooth_latency = savgol_filter(self.peers_latency, 21, 1)
 
             weighted_latest_latency = round(
                 (our_smooth_latency[-1] * 0.6) + (our_peers_smooth_latency[-1] * 0.4), 3
@@ -599,35 +632,41 @@ class Node:
                 # rsi = int(RSI(21, filtered_zlema)[-1])
                 # rsi = TSI(9, 15, filtered_zlema)[-1]
 
-                our_latency_rsi = int(RSI(14, our_smooth_latency)[-1])
-                our_peers_latency_rsi = int(RSI(14, our_peers_smooth_latency)[-1])
-
-                weighted_rsi = round(
-                    (our_latency_rsi * 0.6) + (our_peers_latency_rsi * 0.4), 3
-                )
+                our_latency_rsi = int(RSI(21, our_smooth_latency)[-1])
+                our_peers_latency_rsi = int(RSI(21, our_peers_smooth_latency)[-1])
 
                 decrease = random.uniform(0.9, 0.99)
+
+                dont_go_below_minimum = (
+                    True
+                    if round(self.current_latency * decrease, 3) > self.minimum_latency
+                    else False
+                )
 
                 # TSI -30
                 # Trend is downwards, start slowly increase message sending frequency
                 if (
-                    weighted_rsi < 30
-                    or self.current_latency <= 0.25 * self.target_latency
+                    our_latency_rsi < 30
+                    and our_peers_latency_rsi < 30
+                    and dont_go_below_minimum
                 ):
                     self.current_latency = round(self.current_latency * decrease, 3)
 
                     self.my_logger.error(
-                        f"Congestion Control [{weighted_latest_latency}] - [{weighted_rsi}] (\/) - New Target: {self.current_latency}"
+                        f"[{weighted_latest_latency}] [Low RSI] [{our_latency_rsi}] / [{our_peers_latency_rsi}] (\/) - New Target: {self.current_latency}"
                     )
                     self.job_time_change_flag = True
                 # Latency is very low, increase message sending frequency
-                elif our_smooth_latency[-1] < 0.25 * self.target_latency:
-                    self.current_latency = round(self.current_latency * decrease, 3)
+                # elif (
+                #     our_smooth_latency[-1] < 0.25 * self.target_latency
+                #     and dont_go_below_minimum
+                # ):
+                #     self.current_latency = round(self.current_latency * decrease, 3)
 
-                    self.my_logger.error(
-                        f"Congestion Control [{weighted_latest_latency}] - [{weighted_rsi}] (\/) - New Target: {self.current_latency}"
-                    )
-                    self.job_time_change_flag = True
+                #     self.my_logger.error(
+                #         f"[Low Latency] [{our_latency_rsi}] / [{our_peers_latency_rsi}] (\/) - New Target: {self.current_latency}"
+                #     )
+                #     self.job_time_change_flag = True
 
             self.current_latency_metadata.append((time.time(), weighted_latest_latency))
 
@@ -764,8 +803,10 @@ class Node:
             self.my_logger.warning(
                 f"Didnt receive enough ReadyResponse messages to deliver: {batched_message_hash} got: {ready_subscribe.intersection(self.ready_replies[batched_message_hash])} needed: {self.at2_config.delivery_threshold}"
             )
+            for peer in self.recently_missed_delivery:
+                self.recently_missed_delivery[peer] = True
 
-        self.block_times.append(retry_time_ready + retry_time_echo)
+        self.our_latency.append(retry_time_ready + retry_time_echo)
         self.received_msg_metadata.append(
             (retry_time_ready + retry_time_echo, time.time())
         )
@@ -997,8 +1038,8 @@ class Node:
         print(f"ID: {self.id}")
         print(f"Sent BMs: {self.sent_gossips} / Received BMs: {self.received_gossips}")
         print(f"Messages Delivered: {self.delivered_gossips}")
-        print(f"Average RTT: {sum(self.block_times) / len(self.block_times)}")
-        print(f"Min RTT: {min(self.block_times)} / Max RTT {max(self.block_times)}")
+        print(f"Average RTT: {sum(self.our_latency) / len(self.our_latency)}")
+        print(f"Min RTT: {min(self.our_latency)} / Max RTT {max(self.our_latency)}")
 
     def stop(self):
         self.running = False
@@ -1019,18 +1060,26 @@ class Node:
         # # Add the job to the scheduler, which triggers every 10 seconds
         self.scheduler = AsyncIOScheduler()
         job = self.scheduler.add_job(
-            self.batch_message_builder_job, trigger="interval", seconds=3
+            self.batch_message_builder_job,
+            trigger="interval",
+            seconds=random.randint(
+                int(self.target_latency * 0.75), int(self.target_latency * 1.25)
+            ),
         )
         self.batched_message_job_id = job.id
 
         job = self.scheduler.add_job(
-            self.increasing_congestion_monitoring_job, trigger="interval", seconds=5
+            self.increasing_congestion_monitoring_job,
+            trigger="interval",
+            seconds=random.randint(3, 7),
         )
 
         self.increase_job_id = job.id
 
         job = self.scheduler.add_job(
-            self.decrease_congestion_monitoring_job, trigger="interval", seconds=10
+            self.decrease_congestion_monitoring_job,
+            trigger="interval",
+            seconds=random.randint(8, 12),
         )
 
         self.decrease_job_id = job.id
