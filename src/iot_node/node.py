@@ -122,7 +122,7 @@ class Node:
     current_latency: int = field(factory=int)
     peers_latency: deque = field(factory=lambda: deque(maxlen=500))
     our_latency: deque = field(factory=lambda: deque(maxlen=500))
-    dropped_messages_tracker: deque = field(factory=lambda: deque(maxlen=500))
+    dropped_messages_tracker: deque = field(factory=lambda: deque(maxlen=100))
     recently_missed_delivery: defaultdict[bool] = field(
         factory=lambda: defaultdict(bool)
     )
@@ -578,11 +578,7 @@ class Node:
 
             # Latency ca
 
-            if (
-                # Are our estimates falling behind fast increasing latency?
-                self.current_latency <= 0.5 * our_smooth_latency[-1]
-                and self.current_latency <= 0.5 * our_peers_smooth_latency[-1]
-            ):
+            if self.current_latency <= 0.5 * weighted_latest_latency:
                 if self.current_latency * 2 < self.max_gossip_timeout_time * 0.85:
                     # Make sure current latency stays below max gossip
                     self.current_latency *= 2
@@ -698,7 +694,7 @@ class Node:
             else False
         )
 
-        if self.dropped_messages_tracker.count(False) >= 6 and i_am_message_creator:
+        if self.dropped_messages_tracker.count(False) >= 25 and i_am_message_creator:
             print(f"latency too high, dropping {batched_message_hash.encode()}")
         else:
             # Step 1
@@ -1120,7 +1116,7 @@ class Node:
         job = self.scheduler.add_job(
             self.increasing_congestion_monitoring_job,
             trigger="interval",
-            seconds=random.randint(3, 7),
+            seconds=random.randint(4, 6),
         )
 
         self.increase_job_id = job.id
