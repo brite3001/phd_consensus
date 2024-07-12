@@ -122,7 +122,7 @@ class Node:
     current_latency: int = field(factory=int)
     peers_latency: deque = field(factory=lambda: deque(maxlen=500))
     our_latency: deque = field(factory=lambda: deque(maxlen=500))
-    dropped_messages_tracker: deque = field(factory=lambda: deque(maxlen=100))
+    dropped_messages_tracker: deque = field(factory=lambda: deque(maxlen=500))
     recently_missed_delivery: defaultdict[bool] = field(
         factory=lambda: defaultdict(bool)
     )
@@ -520,7 +520,7 @@ class Node:
 
     async def batched_message_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
-        # asyncio.create_task(self.batch_message_builder_job())
+        asyncio.create_task(self.batch_message_builder_job())
 
     async def batch_message_builder_job(self):
         if len(self.pending_gossips) >= 1:
@@ -666,6 +666,8 @@ class Node:
                         f"[{weighted_latest_latency}] [Low RSI] [{our_latency_rsi}] / [{our_peers_latency_rsi}] (\/) - New Target: {self.current_latency}"
                     )
                     self.job_time_change_flag = True
+
+                    self.dropped_messages_tracker.clear()
                 # Latency is very low, increase message sending frequency
                 # elif (
                 #     our_smooth_latency[-1] < 0.25 * self.target_latency
@@ -694,7 +696,7 @@ class Node:
             else False
         )
 
-        if self.dropped_messages_tracker.count(False) >= 25 and i_am_message_creator:
+        if self.dropped_messages_tracker.count(True) >= 100 and i_am_message_creator:
             print(f"latency too high, dropping {batched_message_hash.encode()}")
         else:
             # Step 1
