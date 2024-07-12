@@ -108,6 +108,7 @@ class Node:
     target_latency: int = 10
     minimum_latency: int = 1
     max_gossip_timeout_time = 60
+    max_response_delay_time = 5
     node_selection_type = "normal"
     random_seed = 2929
 
@@ -118,6 +119,7 @@ class Node:
     batched_message_job_id = field(init=False)
     increase_job_id = field(init=False)
     decrease_job_id = field(init=False)
+    publish_pending_responses_job_id = field(init=False)
     job_time_change_flag: bool = field(factory=bool)
     current_latency: int = field(factory=int)
     peers_latency: deque = field(factory=lambda: deque(maxlen=500))
@@ -359,49 +361,62 @@ class Node:
             if not self.running:
                 break
             recv = await self._subscriber.read()
-            # if len(recv) == 2:
-            #     self.my_logger.info("Received unsigned published message")
-            # elif len(recv) == 3:
-            #     self.my_logger.info("Received signed published message")
-            # topic is recv[0]
-            message = recv[1]
-            message = json.loads(message.decode())
 
-            if message["message_type"] == "EchoResponse":
-                message = Response(**message)
-                echo_sig = json.loads(recv[2].decode())
-                sig_check = message.verify_echo_response(echo_sig)
-                publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
-                self.my_logger.debug(
-                    f"Received EchoResponse for {message.topic} from {publisher}"
-                )
-                if sig_check:
-                    self.echo_replies[message.topic].add(publisher)
-                else:
-                    self.my_logger.warning(
-                        f"Signature check for message {message.topic} from {publisher} failed!!"
-                    )
-            elif message["message_type"] == "ReadyResponse":
-                message = Response(**message)
-                echo_sig = json.loads(recv[2].decode())
-                sig_check = message.verify_echo_response(echo_sig)
-                publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
-                self.my_logger.debug(
-                    f"Received ReadyResponse for {message.topic} from {publisher}"
-                )
-                if sig_check:
-                    self.ready_replies[message.topic].add(publisher)
-                else:
-                    self.my_logger.warning(
-                        f"Signature check for message {message.topic} from {publisher} failed!!"
-                    )
-            else:
-                self.my_logger.error(f"Received unrecognised message: {message}")
+            multi_topic = recv[0].decode()
+            responses = recv[1].decode()
+            signatures = recv[2].decode()
+
+            multi_topic = multi_topic.split("|")
+            responses = responses.split("|")
+            signatures = signatures.split("|")
+
+            multi_topic = [x for x in multi_topic if x]
+            responses = [json.loads(x) for x in responses if x]
+            signatures = [json.loads(x) for x in signatures if x]
+
+            for topic, message, echo_sig in zip(multi_topic, responses, signatures):
+                if topic in self.subscribed_topics:
+                    message_type = message["message_type"]
+
+                    message = Response(**message)
+
+                    if message_type == "EchoResponse":
+                        sig_check = message.verify_echo_response(echo_sig)
+                        publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
+                        self.my_logger.debug(
+                            f"Received EchoResponse for {message.topic} from {publisher}"
+                        )
+                        if sig_check:
+                            self.echo_replies[message.topic].add(publisher)
+                        else:
+                            self.my_logger.warning(
+                                f"Signature check for message {message.topic} from {publisher} failed!!"
+                            )
+                    elif message_type == "ReadyResponse":
+                        sig_check = message.verify_echo_response(echo_sig)
+                        publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
+                        self.my_logger.debug(
+                            f"Received ReadyResponse for {message.topic} from {publisher}"
+                        )
+                        if sig_check:
+                            self.ready_replies[message.topic].add(publisher)
+                        else:
+                            self.my_logger.warning(
+                                f"Signature check for message {message.topic} from {publisher} failed!!"
+                            )
+                    else:
+                        self.my_logger.error(
+                            f"Received unrecognised message: {message}"
+                        )
 
     ####################
     # Message Sending  #
     ####################
     async def unsigned_publish(self, pub: dict):
+        #####################
+        # WARNING!!! THIS WILL NOT WORK!
+        # sub listen now expects multi_topic pubs
+        ########################
         message = json.dumps(asdict(pub)).encode()
 
         self._publisher.write([pub.topic.encode(), message])
@@ -505,10 +520,26 @@ class Node:
             if resp[0] == b"ALREADY_RECEIVED" and isinstance(message, Echo):
                 self.already_received[message.batched_messages_hash].add(receiver)
 
-    async def publish_signed_echo_response(self, to_publish: Response):
-        message = json.dumps(asdict(to_publish)).encode()
-        echo_sig = json.dumps(to_publish.sign(self._crypto_keys)).encode()
-        self._publisher.write([to_publish.topic.encode(), message, echo_sig])
+    async def publish_signed_echo_response(self):
+        # message = json.dumps(asdict(to_publish)).encode()
+        # echo_sig = json.dumps(to_publish.sign(self._crypto_keys)).encode()
+        # self._publisher.write([to_publish.topic.encode(), message, echo_sig])
+
+        if len(self.pending_responses) >= 1:
+            multi_topic_str = ""
+            resps = ""
+            resp_sigs = ""
+
+            for resp in self.pending_responses:
+                multi_topic_str += resp.topic + "|"
+                resps += json.dumps(asdict(resp)) + "|"
+                resp_sigs += json.dumps(resp.sign(self._crypto_keys)) + "|"
+
+            self._publisher.write(
+                [multi_topic_str.encode(), resps.encode(), resp_sigs.encode()]
+            )
+
+            self.pending_responses.clear()
 
     ######################
     # Congestion Control #
@@ -658,6 +689,7 @@ class Node:
                 if (
                     our_latency_rsi < 30
                     and our_peers_latency_rsi < 30
+                    and our_peers_latency_rsi > 0
                     and dont_go_below_minimum
                 ):
                     self.current_latency = round(self.current_latency * decrease, 3)
@@ -706,7 +738,7 @@ class Node:
 
             # Step 2
             for peer_id in echo_subscribe:
-                s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
+                s2p = SubscribeToPublisher(peer_id, batched_message_hash)
                 self.command(s2p)
 
             # Step 3
@@ -723,7 +755,7 @@ class Node:
 
             # Step 5
             for peer_id in ready_subscribe:
-                s2p = SubscribeToPublisher(peer_id, batched_message_hash.encode())
+                s2p = SubscribeToPublisher(peer_id, batched_message_hash)
                 self.command(s2p)
 
             for peer_id in echo_subscribe:
@@ -772,8 +804,6 @@ class Node:
                 if retry_time_echo == self.max_gossip_timeout_time:
                     break
                 await asyncio.sleep(0.25)
-
-                print("stuck")
 
                 retry_time_echo += 0.25
 
@@ -861,8 +891,8 @@ class Node:
             )
 
             # Step 11
-            # unsub = UnsubscribeFromTopic(batched_message_hash.encode())
-            # self.command(unsub)
+            unsub = UnsubscribeFromTopic(batched_message_hash)
+            self.command(unsub)
 
             # setup variables
             """
@@ -928,18 +958,18 @@ class Node:
     ####################
     def command(self, command_obj, receiver=""):
         if isinstance(command_obj, SubscribeToPublisher):
-            # asyncio.create_task(self.subscribe(command_obj))
-            pass
+            asyncio.create_task(self.subscribe(command_obj))
         elif isinstance(command_obj, Gossip):
             asyncio.create_task(self.batched_message_queue(command_obj))
-        # elif isinstance(command_obj, UnsubscribeFromTopic):
-        #     asyncio.create_task(self.unsubscribe(command_obj))
+        elif isinstance(command_obj, UnsubscribeFromTopic):
+            asyncio.create_task(self.unsubscribe(command_obj))
         elif issubclass(type(command_obj), BatchedMessages):
             asyncio.create_task(self.send_signed_batched_message(command_obj, receiver))
         elif issubclass(type(command_obj), Echo):
             asyncio.create_task(self.send_signed_message(command_obj, receiver))
         elif issubclass(type(command_obj), Response):
-            asyncio.create_task(self.publish_signed_echo_response(command_obj))
+            asyncio.create_task(self.ready_response_queue(command_obj))
+            # asyncio.create_task(self.publish_signed_echo_response(command_obj))
         elif issubclass(type(command_obj), DirectMessage):
             asyncio.create_task(self.unsigned_direct_message(command_obj, receiver))
         elif isinstance(command_obj, PublishMessage):
@@ -1028,7 +1058,6 @@ class Node:
         # peer_id is a key from the self.peers dict
 
         for peer_id in self.peers:
-            print(f"subbed to {peer_id}")
             self._subscriber.transport.connect(self.peers[peer_id].publisher_address)
 
         self._subscriber.transport.subscribe(b"")
@@ -1038,6 +1067,12 @@ class Node:
 
         if s2p.topic not in self.subscribed_topics:
             self.subscribed_topics.add(s2p.topic)
+
+    async def unsubscribe(self, s2p: UnsubscribeFromTopic):
+        # peer_id is a key from the self.peers dict
+
+        if s2p.topic in self.subscribed_topics:
+            self.subscribed_topics.remove(s2p.topic)
 
     async def init_sockets(self):
         self._subscriber = await aiozmq.create_zmq_stream(zmq.SUB)
@@ -1125,6 +1160,14 @@ class Node:
         )
 
         self.decrease_job_id = job.id
+
+        job = self.scheduler.add_job(
+            self.publish_signed_echo_response,
+            trigger="interval",
+            seconds=2.5,
+        )
+
+        self.publish_pending_responses_job_id = job.id
 
         # # Start the scheduler
         self.scheduler.start()
