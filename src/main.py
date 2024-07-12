@@ -69,6 +69,8 @@ async def main():
         f"All nodes ready {len(list(this_node.peers.keys()))} / {len(router_list)} "
     )
 
+    await this_node.subscribe_to_all_peers_and_topics()
+
     await asyncio.sleep(5)
 
     ### algorithm not working well for 100 nodes. Need a mechanism to limit the

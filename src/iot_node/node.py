@@ -105,7 +105,7 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_latency: int = 2
+    target_latency: int = 10
     minimum_latency: int = 1
     max_gossip_timeout_time = 60
     node_selection_type = "normal"
@@ -122,7 +122,7 @@ class Node:
     current_latency: int = field(factory=int)
     peers_latency: deque = field(factory=lambda: deque(maxlen=500))
     our_latency: deque = field(factory=lambda: deque(maxlen=500))
-    dropped_messages_tracker: deque = field(factory=lambda: deque(maxlen=500))
+    dropped_messages_tracker: deque = field(factory=lambda: deque(maxlen=100))
     recently_missed_delivery: defaultdict[bool] = field(
         factory=lambda: defaultdict(bool)
     )
@@ -520,7 +520,7 @@ class Node:
 
     async def batched_message_queue(self, gossip: Gossip):
         self.pending_gossips.append(gossip)
-        asyncio.create_task(self.batch_message_builder_job())
+        # asyncio.create_task(self.batch_message_builder_job())
 
     async def batch_message_builder_job(self):
         if len(self.pending_gossips) >= 1:
@@ -696,7 +696,7 @@ class Node:
             else False
         )
 
-        if self.dropped_messages_tracker.count(True) >= 100 and i_am_message_creator:
+        if self.dropped_messages_tracker.count(True) >= 25 and i_am_message_creator:
             print(f"latency too high, dropping {batched_message_hash.encode()}")
         else:
             # Step 1
@@ -773,6 +773,8 @@ class Node:
                     break
                 await asyncio.sleep(0.25)
 
+                print("stuck")
+
                 retry_time_echo += 0.25
 
             if (
@@ -840,6 +842,7 @@ class Node:
                     self.delivered_msg_metadata.append((time.time(), len(bm.messages)))
 
                 self.my_logger.warning(f"{batched_message_hash} has been delivered!")
+                self.dropped_messages_tracker.append(False)
             else:
                 self.my_logger.error(
                     f"ReadyResponse Failure: {batched_message_hash} got: {len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))} needed: {self.at2_config.delivery_threshold}"
@@ -848,7 +851,6 @@ class Node:
                 # Dount double enter missed delivery if the echo also failed
                 if not echo_failure:
                     for peer in self.recently_missed_delivery:
-                        print(peer)
                         self.recently_missed_delivery[peer] = True
 
                     self.dropped_messages_tracker.append(True)
@@ -859,8 +861,8 @@ class Node:
             )
 
             # Step 11
-            unsub = UnsubscribeFromTopic(batched_message_hash.encode())
-            self.command(unsub)
+            # unsub = UnsubscribeFromTopic(batched_message_hash.encode())
+            # self.command(unsub)
 
             # setup variables
             """
@@ -926,11 +928,12 @@ class Node:
     ####################
     def command(self, command_obj, receiver=""):
         if isinstance(command_obj, SubscribeToPublisher):
-            asyncio.create_task(self.subscribe(command_obj))
+            # asyncio.create_task(self.subscribe(command_obj))
+            pass
         elif isinstance(command_obj, Gossip):
             asyncio.create_task(self.batched_message_queue(command_obj))
-        elif isinstance(command_obj, UnsubscribeFromTopic):
-            asyncio.create_task(self.unsubscribe(command_obj))
+        # elif isinstance(command_obj, UnsubscribeFromTopic):
+        #     asyncio.create_task(self.unsubscribe(command_obj))
         elif issubclass(type(command_obj), BatchedMessages):
             asyncio.create_task(self.send_signed_batched_message(command_obj, receiver))
         elif issubclass(type(command_obj), Echo):
@@ -1021,28 +1024,20 @@ class Node:
         for ip in routers:
             await self.unsigned_direct_message(pd, ip)
 
+    async def subscribe_to_all_peers_and_topics(self):
+        # peer_id is a key from the self.peers dict
+
+        for peer_id in self.peers:
+            print(f"subbed to {peer_id}")
+            self._subscriber.transport.connect(self.peers[peer_id].publisher_address)
+
+        self._subscriber.transport.subscribe(b"")
+
     async def subscribe(self, s2p: SubscribeToPublisher):
         # peer_id is a key from the self.peers dict
 
-        # Don't resubscribe to the same ip twice, or else things break
-        if s2p.peer_id not in self.connected_subscribers:
-            self._subscriber.transport.connect(
-                self.peers[s2p.peer_id].publisher_address
-            )
-            self.connected_subscribers.add(s2p.peer_id)
-            self.my_logger.debug(
-                f"Connected to publisher: {self.peers[s2p.peer_id].publisher_address}"
-            )
-
         if s2p.topic not in self.subscribed_topics:
-            self._subscriber.transport.subscribe(s2p.topic)
             self.subscribed_topics.add(s2p.topic)
-            self.my_logger.debug(f"Subscribed to: {s2p.topic}")
-
-    async def unsubscribe(self, unsub: UnsubscribeFromTopic):
-        if unsub.topic in self.subscribed_topics:
-            self._subscriber.transport.unsubscribe(unsub.topic)
-            self.my_logger.debug(f"Unsubscribed from topic: {unsub.topic}")
 
     async def init_sockets(self):
         self._subscriber = await aiozmq.create_zmq_stream(zmq.SUB)
