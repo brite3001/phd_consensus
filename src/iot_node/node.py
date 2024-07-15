@@ -105,12 +105,13 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_latency: int = 10
+    target_latency: int = 2.5
+    target_publishing_frequency = 2.5
+    max_publishing_frequency = 10
     minimum_latency: int = 1
     max_gossip_timeout_time = 60
     max_response_delay_time = 5
     node_selection_type = "normal"
-    random_seed = 2929
 
     # Congestion control
     scheduler = field(init=False)
@@ -119,12 +120,13 @@ class Node:
     batched_message_job_id = field(init=False)
     increase_job_id = field(init=False)
     decrease_job_id = field(init=False)
+    publish_pending_frequency: int = field(factory=int)
     publish_pending_responses_job_id = field(init=False)
     job_time_change_flag: bool = field(factory=bool)
+    publish_pending_change_flag: bool = field(factory=bool)
     current_latency: int = field(factory=int)
-    peers_latency: deque = field(factory=lambda: deque(maxlen=500))
-    our_latency: deque = field(factory=lambda: deque(maxlen=500))
-    dropped_messages_tracker: deque = field(factory=lambda: deque(maxlen=100))
+    peers_latency: deque = field(factory=lambda: deque(maxlen=100))
+    our_latency: deque = field(factory=lambda: deque(maxlen=100))
     recently_missed_delivery: defaultdict[bool] = field(
         factory=lambda: defaultdict(bool)
     )
@@ -541,6 +543,16 @@ class Node:
 
             self.pending_responses.clear()
 
+        if self.job_time_change_flag:
+            self.scheduler.remove_job(self.publish_pending_responses_job_id)
+            updated_job = self.scheduler.add_job(
+                self.publish_signed_echo_response,
+                trigger="interval",
+                seconds=self.publish_pending_frequency,
+            )
+            self.publish_pending_responses_job_id = updated_job.id
+            self.publish_pending_change_flag = False
+
     ######################
     # Congestion Control #
     ######################
@@ -639,15 +651,22 @@ class Node:
 
                 # TSI +30
                 if (
-                    (our_latency_rsi > 70 or our_peers_latency_rsi > 70)
+                    (our_latency_rsi > 70 and our_peers_latency_rsi > 70)
                     and dont_exceed_max_target
                     and latency_under_target
                 ):
                     self.current_latency = round(self.current_latency * increase, 3)
-                    self.my_logger.error(
-                        f"[{weighted_latest_latency}] [High RSI] [{our_latency_rsi}] / [{our_peers_latency_rsi}] (/\) - New Target: {self.current_latency}"
-                    )
                     self.job_time_change_flag = True
+
+                    if self.publish_pending_frequency < self.max_publishing_frequency:
+                        self.publish_pending_frequency = round(
+                            self.publish_pending_frequency * increase, 3
+                        )
+                        self.publish_pending_change_flag = True
+
+                    self.my_logger.error(
+                        f"[High RSI - /\] T: {self.current_latency} P/FQ: {self.publish_pending_frequency} W: {weighted_latest_latency} O/L: {our_latency_rsi} O/P: {our_peers_latency_rsi}"
+                    )
 
             self.current_latency_metadata.append((time.time(), weighted_latest_latency))
 
@@ -699,18 +718,28 @@ class Node:
                     )
                     self.job_time_change_flag = True
 
-                    self.dropped_messages_tracker.clear()
-                # Latency is very low, increase message sending frequency
-                # elif (
-                #     our_smooth_latency[-1] < 0.25 * self.target_latency
-                #     and dont_go_below_minimum
-                # ):
-                #     self.current_latency = round(self.current_latency * decrease, 3)
+                    if self.publish_pending_frequency > self.minimum_latency:
+                        self.publish_pending_frequency = round(
+                            self.publish_pending_frequency * decrease, 3
+                        )
 
-                #     self.my_logger.error(
-                #         f"[Low Latency] [{our_latency_rsi}] / [{our_peers_latency_rsi}] (\/) - New Target: {self.current_latency}"
-                #     )
-                #     self.job_time_change_flag = True
+                        self.publish_pending_change_flag = True
+                else:
+                    self.my_logger.error(
+                        f" latest: [{weighted_latest_latency}] current: {self.current_latency}"
+                    )
+
+            # Latency is very low, increase message sending frequency
+            # elif (
+            #     our_smooth_latency[-1] < 0.25 * self.target_latency
+            #     and dont_go_below_minimum
+            # ):
+            #     self.current_latency = round(self.current_latency * decrease, 3)
+
+            #     self.my_logger.error(
+            #         f"[Low Latency] [{our_latency_rsi}] / [{our_peers_latency_rsi}] (\/) - New Target: {self.current_latency}"
+            #     )
+            #     self.job_time_change_flag = True
 
             self.current_latency_metadata.append((time.time(), weighted_latest_latency))
 
@@ -728,230 +757,206 @@ class Node:
             else False
         )
 
-        if self.dropped_messages_tracker.count(True) >= 25 and i_am_message_creator:
-            print(f"latency too high, dropping {batched_message_hash.encode()}")
+        # Step 1
+        echo_subscribe = self.select_nodes(
+            self.node_selection_type, self.at2_config.echo_sample_size
+        )
+
+        # Step 2
+        for peer_id in echo_subscribe:
+            s2p = SubscribeToPublisher(peer_id, batched_message_hash)
+            self.command(s2p)
+
+        # Step 3
+        es = Echo(
+            "EchoSubscribe",
+            batched_message_hash,
+            self._crypto_keys.ecdsa_public_key_tuple,
+        )
+
+        # Step 4
+        ready_subscribe = self.select_nodes(
+            self.node_selection_type, self.at2_config.ready_sample_size
+        )
+
+        # Step 5
+        for peer_id in ready_subscribe:
+            s2p = SubscribeToPublisher(peer_id, batched_message_hash)
+            self.command(s2p)
+
+        for peer_id in echo_subscribe:
+            self.command(es, peer_id)
+
+        # Step 6
+        rs = Echo(
+            "ReadySubscribe",
+            batched_message_hash,
+            self._crypto_keys.ecdsa_public_key_tuple,
+        )
+
+        for peer_id in ready_subscribe:
+            self.command(rs, peer_id)
+
+        # Step 7
+        if i_am_message_creator:
+            self.vector_clock[self.id] += 1
+
+        # step 8
+        if (
+            len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
+            < self.at2_config.feedback_threshold
+        ):
+            # If the message doesn't have enough ready_replies, assume it hasn't been propagated
+            # enough, send the message to our echo_subscribe group
+            self.received_messages[batched_message_hash] = bm
+            for peer_id in echo_subscribe:
+                if peer_id not in self.already_received[batched_message_hash]:
+                    self.command(bm, peer_id)
+
+        # Step 9
+        # Using intersection to only count echos from nodes in our echo_subscribe set() we defined earlier
+        retry_time_echo = 0
+        echo_failure = False
+        while (
+            len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))
+            < self.at2_config.ready_threshold
+        ):
+            if retry_time_echo == self.max_gossip_timeout_time:
+                break
+            await asyncio.sleep(0.25)
+
+            retry_time_echo += 0.25
+
+        if (
+            len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))
+            >= self.at2_config.ready_threshold
+        ):
+            ready = Response(
+                "ReadyResponse",
+                batched_message_hash,
+                self._crypto_keys.ecdsa_public_key_tuple,
+            )
+
+            self.command(ready)
+            self.my_logger.warning(f"Ready for: {batched_message_hash}")
         else:
-            # Step 1
-            echo_subscribe = self.select_nodes(
-                self.node_selection_type, self.at2_config.echo_sample_size
+            self.my_logger.error(
+                f"Echo Failure: {batched_message_hash} got: {len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))} needed: {self.at2_config.ready_threshold}"
             )
 
-            # Step 2
-            for peer_id in echo_subscribe:
-                s2p = SubscribeToPublisher(peer_id, batched_message_hash)
-                self.command(s2p)
+            for peer in self.recently_missed_delivery:
+                self.recently_missed_delivery[peer] = True
 
-            # Step 3
-            es = Echo(
-                "EchoSubscribe",
-                batched_message_hash,
-                self._crypto_keys.ecdsa_public_key_tuple,
+            echo_failure = True
+
+        # Step 10
+        # Using intersection to only count ready messages from nodes in our ready_replies set() we defined earlier
+        retry_time_ready = 0
+        while (
+            len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
+            < self.at2_config.delivery_threshold
+        ):
+            if retry_time_ready == self.max_gossip_timeout_time:
+                break
+            elif echo_failure:
+                break
+
+            await asyncio.sleep(0.1)
+
+            retry_time_ready += 0.1
+
+        if (
+            len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))
+            >= self.at2_config.delivery_threshold
+        ):
+            self.delivered_gossips += 1
+            vector_clock_without_node_id = [value for key, value in bm.vector_clock]
+
+            self.sequenced_messages.add(
+                (tuple(vector_clock_without_node_id), batched_message_hash)
             )
 
-            # Step 4
-            ready_subscribe = self.select_nodes(
-                self.node_selection_type, self.at2_config.ready_sample_size
-            )
-
-            # Step 5
-            for peer_id in ready_subscribe:
-                s2p = SubscribeToPublisher(peer_id, batched_message_hash)
-                self.command(s2p)
-
-            for peer_id in echo_subscribe:
-                self.command(es, peer_id)
-
-            # Step 6
-            rs = Echo(
-                "ReadySubscribe",
-                batched_message_hash,
-                self._crypto_keys.ecdsa_public_key_tuple,
-            )
-
-            for peer_id in ready_subscribe:
-                self.command(rs, peer_id)
-
-            # Step 7
             if i_am_message_creator:
-                self.vector_clock[self.id] += 1
+                self.delivered_msg_metadata.append((time.time(), len(bm.messages)))
 
-            # step 8
-            if (
-                len(
-                    ready_subscribe.intersection(
-                        self.ready_replies[batched_message_hash]
-                    )
-                )
-                < self.at2_config.feedback_threshold
-            ):
-                # If the message doesn't have enough ready_replies, assume it hasn't been propagated
-                # enough, send the message to our echo_subscribe group
-                self.received_messages[batched_message_hash] = bm
-                for peer_id in echo_subscribe:
-                    if peer_id not in self.already_received[batched_message_hash]:
-                        self.command(bm, peer_id)
+            self.my_logger.warning(f"{batched_message_hash} has been delivered!")
+        else:
+            self.my_logger.error(
+                f"ReadyResponse Failure: {batched_message_hash} got: {len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))} needed: {self.at2_config.delivery_threshold}"
+            )
 
-            # Step 9
-            # Using intersection to only count echos from nodes in our echo_subscribe set() we defined earlier
-            retry_time_echo = 0
-            echo_failure = False
-            while (
-                len(
-                    echo_subscribe.intersection(self.echo_replies[batched_message_hash])
-                )
-                < self.at2_config.ready_threshold
-            ):
-                if retry_time_echo == self.max_gossip_timeout_time:
-                    break
-                await asyncio.sleep(0.25)
-
-                retry_time_echo += 0.25
-
-            if (
-                len(
-                    echo_subscribe.intersection(self.echo_replies[batched_message_hash])
-                )
-                >= self.at2_config.ready_threshold
-            ):
-                ready = Response(
-                    "ReadyResponse",
-                    batched_message_hash,
-                    self._crypto_keys.ecdsa_public_key_tuple,
-                )
-
-                self.command(ready)
-                self.my_logger.warning(f"Ready for: {batched_message_hash}")
-            else:
-                self.my_logger.error(
-                    f"Echo Failure: {batched_message_hash} got: {len(echo_subscribe.intersection(self.echo_replies[batched_message_hash]))} needed: {self.at2_config.ready_threshold}"
-                )
-
+            # Dount double enter missed delivery if the echo also failed
+            if not echo_failure:
                 for peer in self.recently_missed_delivery:
                     self.recently_missed_delivery[peer] = True
 
-                echo_failure = True
+        self.our_latency.append(retry_time_ready + retry_time_echo)
+        self.received_msg_metadata.append(
+            (retry_time_ready + retry_time_echo, time.time())
+        )
 
-                self.dropped_messages_tracker.append(True)
+        # Step 11
+        unsub = UnsubscribeFromTopic(batched_message_hash)
+        self.command(unsub)
 
-            # Step 10
-            # Using intersection to only count ready messages from nodes in our ready_replies set() we defined earlier
-            retry_time_ready = 0
-            while (
-                len(
-                    ready_subscribe.intersection(
-                        self.ready_replies[batched_message_hash]
-                    )
-                )
-                < self.at2_config.delivery_threshold
-            ):
-                if retry_time_ready == self.max_gossip_timeout_time:
-                    break
-                elif echo_failure:
-                    break
+        # setup variables
+        """
+            Subscribing and sample sizes
+            echo_subscribe / echo_sample_size
+            ready_subscribe / ready_sample_size / delivery_sample_size
 
-                await asyncio.sleep(0.1)
+            Thresholds
+            ready_threshold
+            feedback_threshold
+            delivery_threshold
 
-                retry_time_ready += 0.1
+            
+            Echo responses
+            echo_replies
+            ready_replies
+            delivery_replies
 
-            if (
-                len(
-                    ready_subscribe.intersection(
-                        self.ready_replies[batched_message_hash]
-                    )
-                )
-                >= self.at2_config.delivery_threshold
-            ):
-                self.delivered_gossips += 1
-                vector_clock_without_node_id = [value for key, value in bm.vector_clock]
-
-                self.sequenced_messages.add(
-                    (tuple(vector_clock_without_node_id), batched_message_hash)
-                )
-
-                if i_am_message_creator:
-                    self.delivered_msg_metadata.append((time.time(), len(bm.messages)))
-
-                self.my_logger.warning(f"{batched_message_hash} has been delivered!")
-                self.dropped_messages_tracker.append(False)
-            else:
-                self.my_logger.error(
-                    f"ReadyResponse Failure: {batched_message_hash} got: {len(ready_subscribe.intersection(self.ready_replies[batched_message_hash]))} needed: {self.at2_config.delivery_threshold}"
-                )
-
-                # Dount double enter missed delivery if the echo also failed
-                if not echo_failure:
-                    for peer in self.recently_missed_delivery:
-                        self.recently_missed_delivery[peer] = True
-
-                    self.dropped_messages_tracker.append(True)
-
-            self.our_latency.append(retry_time_ready + retry_time_echo)
-            self.received_msg_metadata.append(
-                (retry_time_ready + retry_time_echo, time.time())
-            )
-
-            # Step 11
-            unsub = UnsubscribeFromTopic(batched_message_hash)
-            self.command(unsub)
-
-            # setup variables
+            Message index    
             """
-                Subscribing and sample sizes
-                echo_subscribe / echo_sample_size
-                ready_subscribe / ready_sample_size / delivery_sample_size
 
-                Thresholds
-                ready_threshold
-                feedback_threshold
-                delivery_threshold
+        # Algorithm (Sender)
+        """
+            Setup
+            1) Create an echo_subscribe group of size echo_sample_size
+            2) Subscribe to the publisher of all nodes in echo_subscribe
+            3) Send all nodes in echo_subscribe an EchoSubscribe message
 
-                
-                Echo responses
-                echo_replies
-                ready_replies
-                delivery_replies
+            4) Create a ready_subscribe group of size ready_sample_size
+            5) Subscribe to the publisher of all nodes in ready_subscribe
+            6) Send all nodes in ready_subscribe a ReadySubscribe message
 
-                Message index    
-                """
+            7) Increment the message index
+            8) Send the message to all nodes in echo_subscribe group
 
-            # Algorithm (Sender)
+            9) Send a READY message if either:
+            9a) you receive at least ready_threshold Echo messages from your echo_subscribe group
+            9b) you receive at least feedback threshold Ready messages from your ready_subscribe group
+
+            10) once you receive at least delivery_threshold Ready messages, the message is considered Delivered
             """
-                Setup
-                1) Create an echo_subscribe group of size echo_sample_size
-                2) Subscribe to the publisher of all nodes in echo_subscribe
-                3) Send all nodes in echo_subscribe an EchoSubscribe message
 
-                4) Create a ready_subscribe group of size ready_sample_size
-                5) Subscribe to the publisher of all nodes in ready_subscribe
-                6) Send all nodes in ready_subscribe a ReadySubscribe message
+        # Algorithm (Gossiper)
+        """
+            Basically same as above, except a little check is added which may avoid sending the message again.
+            When sending an EchoSubscribe message and a ReadySubscribe message, if the nodes in your echo_subscribe
+            and ready_subscribe groups have already reached the
+            ready_threshold and the feedback_threshold, the node will again broadcast an Echo or Ready message.
 
-                7) Increment the message index
-                8) Send the message to all nodes in echo_subscribe group
+            Node receives lots of Ready Messages
+            If the regossiping node receives feedback_threshold number of Ready messages from nodes
+            in their ready_reply group, they'll immediately send out a
+            Ready message. If they receive delivery_threshold number of messages, the node will immediately
+            Deliver the message to the application.
 
-                9) Send a READY message if either:
-                9a) you receive at least ready_threshold Echo messages from your echo_subscribe group
-                9b) you receive at least feedback threshold Ready messages from your ready_subscribe group
-
-                10) once you receive at least delivery_threshold Ready messages, the message is considered Delivered
-                """
-
-            # Algorithm (Gossiper)
+            Node receives few Ready messages
+            If the node doesn't hit the feedback threshold for their ready_subscribe group when sending a 
+            ReadySubscribe message, the node will send the orginal message and regossip it.
             """
-                Basically same as above, except a little check is added which may avoid sending the message again.
-                When sending an EchoSubscribe message and a ReadySubscribe message, if the nodes in your echo_subscribe
-                and ready_subscribe groups have already reached the
-                ready_threshold and the feedback_threshold, the node will again broadcast an Echo or Ready message.
-
-                Node receives lots of Ready Messages
-                If the regossiping node receives feedback_threshold number of Ready messages from nodes
-                in their ready_reply group, they'll immediately send out a
-                Ready message. If they receive delivery_threshold number of messages, the node will immediately
-                Deliver the message to the application.
-
-                Node receives few Ready messages
-                If the node doesn't hit the feedback threshold for their ready_subscribe group when sending a 
-                ReadySubscribe message, the node will send the orginal message and regossip it.
-                """
 
     ####################
     # Node Message Bus #
@@ -1128,11 +1133,12 @@ class Node:
         self.running = True
         asyncio.create_task(self.router_listener())
         asyncio.create_task(self.subscriber_listener())
-        # random.seed(self.random_seed)
 
         await asyncio.sleep(random.randint(1, 3))
 
         self.current_latency = self.target_latency
+
+        self.publish_pending_frequency = self.target_publishing_frequency
 
         # # Add the job to the scheduler, which triggers every 10 seconds
         self.scheduler = AsyncIOScheduler()
@@ -1164,7 +1170,10 @@ class Node:
         job = self.scheduler.add_job(
             self.publish_signed_echo_response,
             trigger="interval",
-            seconds=2.5,
+            seconds=random.randint(
+                int(self.publish_pending_frequency * 0.75),
+                int(self.publish_pending_frequency * 1.25),
+            ),
         )
 
         self.publish_pending_responses_job_id = job.id

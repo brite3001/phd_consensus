@@ -21,7 +21,7 @@ def load_tuple(test_name: str, file_name: str) -> list:
         return []
 
 
-test_name = "GOLD_DATA_SERVER_CCA"
+test_name = "GOLD_LAPTOP_DOUBLE_BATCH"
 interval = 10
 
 smooth_latency = list(load_tuple(test_name, "current_latency.json"))

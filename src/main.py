@@ -73,25 +73,21 @@ async def main():
 
     await asyncio.sleep(5)
 
-    ### algorithm not working well for 100 nodes. Need a mechanism to limit the
-    ### huge spike of latency quickly.
-    ### Maybe a policy to prioritise AT2 protocol messages, deprioritise BMs?
-
     pad = 10**935
     # ###########
     # # Fast    #
     # ###########
     for i in range(1, 1000):
         # Randomize the process of sending commands with a certain probability
-        if random.random() < 0.2:  # Adjust probability as needed
+        if random.random() < 0.5:  # Adjust probability as needed
             # logging.error(f"Node {docker_node_id} sending commands at iteration {i}")
-            for _ in range(10):
+            for _ in range(random.randint(5, 15)):
                 gos = Gossip(
                     message_type="Gossip", timestamp=int(time.time()), padding=pad
                 )
                 this_node.command(gos)
 
-        await asyncio.sleep(random.randint(3, 6))
+        await asyncio.sleep(random.randint(1, 2))
 
     this_node.scheduler.pause_job(this_node.increase_job_id)
     this_node.scheduler.pause_job(this_node.decrease_job_id)
