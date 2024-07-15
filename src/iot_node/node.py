@@ -703,6 +703,13 @@ class Node:
                     else False
                 )
 
+                dont_go_below_latest_latency = (
+                    True
+                    if round(self.current_latency * decrease, 3)
+                    > weighted_latest_latency
+                    else False
+                )
+
                 # TSI -30
                 # Trend is downwards, start slowly increase message sending frequency
                 if (
@@ -710,6 +717,7 @@ class Node:
                     and our_peers_latency_rsi < 30
                     and our_peers_latency_rsi > 0
                     and dont_go_below_minimum
+                    and dont_go_below_latest_latency
                 ):
                     self.current_latency = round(self.current_latency * decrease, 3)
 
