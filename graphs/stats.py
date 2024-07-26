@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import matplotlib.markers as markers
 
 
 def mean_absolute_deviation(y, target):
@@ -24,6 +25,94 @@ def adjust_timestamps(data):
     return adjusted_timestamps
 
 
+def random_color():
+    """Generate a random RGB color."""
+    return np.random.rand(
+        3,
+    )
+
+
+def random_marker():
+    """Select a random marker from the available options."""
+    marker_list = list(markers.MarkerStyle.markers.keys())
+    return np.random.choice(marker_list)
+
+
+def plot_simple_combined_average():
+    rsi_tests = [
+        "graphs/rsi-savgol",
+        "graphs/rsi-ema",
+        "graphs/rsi-kalman-zlema",
+        "graphs/rsi-kama",
+        "graphs/rsi-sma",
+    ]
+    savgol = []
+    ema = []
+    zlema = []
+    kama = []
+    sma = []
+
+    for test in rsi_tests:
+        if test == "graphs/rsi-savgol":
+            savgol = np.array(load_floats(test, "avg.txt"))
+        elif test == "graphs/rsi-ema":
+            ema = np.array(load_floats(test, "avg.txt"))
+        elif test == "graphs/rsi-kalman-zlema":
+            zlema = np.array(load_floats(test, "avg.txt"))
+        elif test == "graphs/rsi-kama":
+            kama = np.array(load_floats(test, "avg.txt"))
+        else:
+            sma = np.array(load_floats(test, "avg.txt"))
+
+    # print(block_averages)
+
+    for tast_name, plt_marker, plt_colour, test_data in zip(
+        ["Savgol", "EMA", "KALMAN-ZLEMA", "KAMA", "SMA"],
+        ["o", "s", "^", "D", "*"],
+        ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
+        [savgol, ema, zlema, kama, sma],
+    ):
+        # Average out the data, make less verbose
+        # Desired block size
+        block_size = 10
+
+        # Full blocks
+        full_blocks = len(test_data) // block_size
+        block_averages = (
+            test_data[: full_blocks * block_size]
+            .reshape(full_blocks, block_size)
+            .mean(axis=1)
+        )
+
+        # Remainder block
+        remainder = test_data[full_blocks * block_size :]
+        if remainder.size > 0:
+            remainder_average = remainder.mean()
+            block_averages = np.append(block_averages, remainder_average)
+
+        block_averages = [x for x in block_averages if x <= 60]
+
+        # Plot the average line
+        plt.plot(
+            np.arange(len(block_averages)),
+            block_averages,
+            label=tast_name,
+            marker=plt_marker,
+            linestyle="-",
+            color=plt_colour,
+        )
+
+    plt.axhline(y=10, color="black", linestyle="-", label="Target Latency")
+
+    # Add labels, title, and legend
+    plt.xlabel("Message Index")
+    plt.ylabel("Latency (s)")
+    plt.title("Message Latency - RSI")
+    plt.legend()
+
+    plt.show()
+
+
 def plot_avg_min_max_block_time(avg_list, min_list, max_list, TEST_NAME):
     # Create x-axis values
     x = np.arange(len(avg_list))
@@ -31,15 +120,15 @@ def plot_avg_min_max_block_time(avg_list, min_list, max_list, TEST_NAME):
     # Plot the average line
     plt.plot(x, avg_list, label="Average", linestyle=":", color="blue")
 
-    # Plot the shaded region between the minimum and maximum curves
-    plt.fill_between(
-        x, min_list, max_list, color="gray", alpha=0.3, label="Range (Min-Max)"
-    )
+    # # Plot the shaded region between the minimum and maximum curves
+    # plt.fill_between(
+    #     x, min_list, max_list, color="gray", alpha=0.3, label="Range (Min-Max)"
+    # )
 
-    # Plot the minimum and maximum curves
-    plt.plot(x, min_list, label="Minimum", linestyle="--", color="green")
-    plt.plot(x, max_list, label="Maximum", linestyle="-.", color="red")
-    plt.axhline(y=10, color="orange", linestyle="-", label="Target Latency")
+    # # Plot the minimum and maximum curves
+    # plt.plot(x, min_list, label="Minimum", linestyle="--", color="green")
+    # plt.plot(x, max_list, label="Maximum", linestyle="-.", color="red")
+    plt.axhline(y=10, color="black", linestyle="-", label="Target Latency")
 
     # Add labels, title, and legend
     plt.xlabel("Message Index")
@@ -80,7 +169,7 @@ def plot_avg_min_max_block_time(avg_list, min_list, max_list, TEST_NAME):
         folder_path, file_name
     )  # Create the complete file path within the subfolder
 
-    plt.savefig(file_path)
+    # plt.savefig(file_path)
 
     # Show the plot
     plt.show()
@@ -142,7 +231,7 @@ def plot_batched_message_magnitude(
         transform=plt.gca().transAxes,
     )
 
-    subfolder = TEST_NAME
+    subfolder = "rsi-ema"
     file_name = "batch" + ".png"
     folder_path = os.path.join(
         os.getcwd(), subfolder
@@ -153,7 +242,7 @@ def plot_batched_message_magnitude(
         folder_path, file_name
     )  # Create the complete file path within the subfolder
 
-    plt.savefig(file_path)
+    # plt.savefig(file_path)
 
     # Show the plot
     plt.show()
@@ -216,18 +305,20 @@ def load_ints(test_name: str, file_name: str) -> list:
 
 
 test = "graphs/tsi-savgol"
-avg, min, max = (
+avg, min, max_vals = (
     load_floats(test, "avg.txt"),
     load_floats(test, "min.txt"),
     load_floats(test, "max.txt"),
 )
 
-plot_avg_min_max_block_time(avg, min, max, test)
+# plot_avg_min_max_block_time(avg, min, max_vals, test)
 
-sent_metadata = list(load_tuple(test, "sent_metadata.txt"))
+# sent_metadata = list(load_tuple(test, "sent_metadata.txt"))
 
-sent, recv, deliv = load_ints(test, "sent_recv_deliv.txt")
+# sent, recv, deliv = load_ints(test, "sent_recv_deliv.txt")
 
 # print(sent_metadata)
 
-plot_batched_message_magnitude(sent_metadata, test, sent, recv, deliv)
+# plot_batched_message_magnitude(sent_metadata, test, sent, recv, deliv)
+
+plot_simple_combined_average()
