@@ -25,6 +25,22 @@ def adjust_timestamps(data):
     return adjusted_timestamps
 
 
+def adjust_timestamps_simple(data):
+    # Find the oldest timestamp
+
+    min_timestamp = [x[1] for x in data]
+    min_timestamp.sort()
+    min_timestamp = min_timestamp[0]
+
+    # Adjust timestamps relative to the oldest timestamp
+    adjusted_timestamps = [
+        (magnitude, timestamp - min_timestamp, node_id)
+        for magnitude, timestamp, node_id in data
+    ]
+
+    return adjusted_timestamps
+
+
 def random_color():
     """Generate a random RGB color."""
     return np.random.rand(
@@ -66,7 +82,7 @@ def plot_simple_combined_average():
 
     # print(block_averages)
 
-    for tast_name, plt_marker, plt_colour, test_data in zip(
+    for test_name, plt_marker, plt_colour, test_data in zip(
         ["Savgol", "EMA", "KALMAN-ZLEMA", "KAMA", "SMA"],
         ["o", "s", "^", "D", "*"],
         ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
@@ -96,7 +112,7 @@ def plot_simple_combined_average():
         plt.plot(
             np.arange(len(block_averages)),
             block_averages,
-            label=tast_name,
+            label=test_name,
             marker=plt_marker,
             linestyle="-",
             color=plt_colour,
@@ -108,6 +124,53 @@ def plot_simple_combined_average():
     plt.xlabel("Message Index")
     plt.ylabel("Latency (s)")
     plt.title("Message Latency - RSI")
+    plt.legend()
+
+    plt.show()
+
+
+def plot_simple_combined_magnitudes(data):
+    # flatten
+    # Flatten the nested list
+    data = [item for sublist in data for item in sublist]
+
+    # # Adjust timestamps relative to the oldest timestamp
+    data = adjust_timestamps_simple(data)
+
+    magnitudes = np.array([magnitude for magnitude, _, _ in data])
+
+    # Average out the data, make less verbose
+    # Desired block size
+    block_size = 10
+
+    # Full blocks
+    full_blocks = len(magnitudes) // block_size
+    block_averages = (
+        magnitudes[: full_blocks * block_size]
+        .reshape(full_blocks, block_size)
+        .mean(axis=1)
+    )
+
+    # Remainder block
+    remainder = magnitudes[full_blocks * block_size :]
+    if remainder.size > 0:
+        remainder_average = remainder.mean()
+        block_averages = np.append(block_averages, remainder_average)
+
+    # Plot the average line
+    plt.plot(
+        np.arange(len(block_averages)),
+        block_averages,
+        label="abcde",
+        marker="o",
+        linestyle="-",
+        color="black",
+    )
+
+    # Add labels, title, and legend
+    plt.xlabel("Message Index")
+    plt.ylabel("Amount of sensor data per message")
+    plt.title("Batch Size Over Time - RSI")
     plt.legend()
 
     plt.show()
@@ -313,12 +376,14 @@ avg, min, max_vals = (
 
 # plot_avg_min_max_block_time(avg, min, max_vals, test)
 
-# sent_metadata = list(load_tuple(test, "sent_metadata.txt"))
+sent_metadata = list(load_tuple(test, "sent_metadata.txt"))
 
-# sent, recv, deliv = load_ints(test, "sent_recv_deliv.txt")
+sent, recv, deliv = load_ints(test, "sent_recv_deliv.txt")
 
 # print(sent_metadata)
 
 # plot_batched_message_magnitude(sent_metadata, test, sent, recv, deliv)
 
-plot_simple_combined_average()
+plot_simple_combined_magnitudes(sent_metadata)
+
+# plot_simple_combined_average()
