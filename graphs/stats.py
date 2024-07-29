@@ -129,53 +129,6 @@ def plot_simple_combined_average():
     plt.show()
 
 
-def plot_simple_combined_magnitudes(data):
-    # flatten
-    # Flatten the nested list
-    data = [item for sublist in data for item in sublist]
-
-    # # Adjust timestamps relative to the oldest timestamp
-    data = adjust_timestamps_simple(data)
-
-    magnitudes = np.array([magnitude for magnitude, _, _ in data])
-
-    # Average out the data, make less verbose
-    # Desired block size
-    block_size = 10
-
-    # Full blocks
-    full_blocks = len(magnitudes) // block_size
-    block_averages = (
-        magnitudes[: full_blocks * block_size]
-        .reshape(full_blocks, block_size)
-        .mean(axis=1)
-    )
-
-    # Remainder block
-    remainder = magnitudes[full_blocks * block_size :]
-    if remainder.size > 0:
-        remainder_average = remainder.mean()
-        block_averages = np.append(block_averages, remainder_average)
-
-    # Plot the average line
-    plt.plot(
-        np.arange(len(block_averages)),
-        block_averages,
-        label="abcde",
-        marker="o",
-        linestyle="-",
-        color="black",
-    )
-
-    # Add labels, title, and legend
-    plt.xlabel("Message Index")
-    plt.ylabel("Amount of sensor data per message")
-    plt.title("Batch Size Over Time - RSI")
-    plt.legend()
-
-    plt.show()
-
-
 def plot_avg_min_max_block_time(avg_list, min_list, max_list, TEST_NAME):
     # Create x-axis values
     x = np.arange(len(avg_list))
@@ -235,6 +188,70 @@ def plot_avg_min_max_block_time(avg_list, min_list, max_list, TEST_NAME):
     # plt.savefig(file_path)
 
     # Show the plot
+    plt.show()
+
+
+def plot_simple_magnitude(data):
+    # flatten
+
+    rsi_tests = [
+        "graphs/tsi-savgol",
+        "graphs/tsi-ema",
+        "graphs/tsi-kalman-zlema",
+        "graphs/tsi-kama",
+        "graphs/tsi-sma",
+    ]
+
+    # Set the time bin size (e.g., 60 seconds)
+    time_bin_size = 60
+    data = list(load_tuple(test, "sent_metadata.txt"))
+    data = [item for sublist in data for item in sublist]
+    data = adjust_timestamps_simple(data)
+
+    for test_name, plt_colour, plt_marker, test_path in zip(
+        ["Savgol", "EMA", "KALMAN-ZLEMA", "KAMA", "SMA"],
+        ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
+        ["o", "s", "^", "D", "*"],
+        rsi_tests,
+    ):
+        data = list(load_tuple(test_path, "sent_metadata.txt"))
+        data = [item for sublist in data for item in sublist]
+        data = adjust_timestamps_simple(data)
+
+        # Determine the range of timestamps
+        start_time = int(min(item[1] for item in data))
+        end_time = int(max(item[1] for item in data))
+
+        # Create bins for the histogram
+        num_bins = (end_time - start_time) // time_bin_size + 1
+        bins = np.linspace(
+            start_time, end_time, num_bins + 1
+        )  # Adding one more bin edge to include the last bin
+
+        # Aggregate the data into time bins
+        histogram_data = np.zeros(num_bins)
+        for message_size, timestamp, _ in data:
+            bin_index = int((timestamp - start_time) // time_bin_size)
+            if bin_index < num_bins:  # Ensure bin_index is within bounds
+                histogram_data[bin_index] += message_size
+
+        # Plot the line graph
+        plt.plot(
+            bins[:-1],  # x-values: bin edges (excluding the last edge)
+            histogram_data,  # y-values: aggregated message sizes
+            linestyle="-",  # Solid line
+            marker=plt_marker,  # Circle markers at data points
+            color=plt_colour,  # Use black color for visibility in black and white
+            label=test_name,
+        )
+
+        plt.legend(title="Legend", loc="upper right")
+
+    # Add labels and title
+    plt.xlabel("Time (seconds)")
+    plt.ylabel("Average Message Size")
+    plt.title("Double Batching - TSI")
+
     plt.show()
 
 
@@ -368,13 +385,13 @@ def load_ints(test_name: str, file_name: str) -> list:
 
 
 test = "graphs/tsi-savgol"
-avg, min, max_vals = (
+avg, min_vals, max_vals = (
     load_floats(test, "avg.txt"),
     load_floats(test, "min.txt"),
     load_floats(test, "max.txt"),
 )
 
-# plot_avg_min_max_block_time(avg, min, max_vals, test)
+# plot_avg_min_max_block_time(avg, min_vals, max_vals, test)
 
 sent_metadata = list(load_tuple(test, "sent_metadata.txt"))
 
@@ -384,6 +401,7 @@ sent, recv, deliv = load_ints(test, "sent_recv_deliv.txt")
 
 # plot_batched_message_magnitude(sent_metadata, test, sent, recv, deliv)
 
-plot_simple_combined_magnitudes(sent_metadata)
+plot_simple_magnitude(sent_metadata)
+
 
 # plot_simple_combined_average()
