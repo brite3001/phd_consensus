@@ -21,26 +21,6 @@ def load_tuple(test_name: str, file_name: str) -> list:
         return []
 
 
-test_name = "GOLD_LAPTOP_DOUBLE_BATCH"
-interval = 10
-
-smooth_latency = list(load_tuple(test_name, "current_latency.json"))
-
-# print(smooth_latency)
-
-smooth_latency = [tuple(sublist) for sublist in smooth_latency]
-
-delivered_with_batch_size = list(load_tuple(test_name, "delivered_latency.json"))
-
-# delivered_with_batch_size = [
-#     item for sublist in delivered_with_batch_size for item in sublist
-# ]
-
-delivered_with_batch_size = [tuple(sublist) for sublist in delivered_with_batch_size]
-
-tps_timestamps = [x[0] for x in delivered_with_batch_size]
-
-
 # Helper function to convert Unix timestamps to seconds from the start
 def convert_to_seconds_from_start(timestamps):
     start_time = timestamps[0]
@@ -88,55 +68,77 @@ def group_transactions(timestamps, interval=1):
     return interval_ranges, grouped_transactions
 
 
-times, tps = group_transactions(tps_timestamps, interval)
+tests = [
+    "GOLD_DATA_LAPTOP_CCA",
+    "GOLD_DATA_SERVER_CCA",
+    "GOLD_LAPTOP_DOUBLE_BATCH",
+    "GOLD_SERVER_DOUBLE_BATCH",
+]
 
-print(times)
-print(tps)
+markers = ["o", "s", "^", "d"]
 
+colours = ["red", "blue", "green", "magenta"]
 
-# Convert Unix timestamps to seconds from the start
-latency_unix_timestamp, latency = zip(*smooth_latency)
-latency_unix_timestamp_seconds = convert_to_seconds_from_start(latency_unix_timestamp)
+names = ["10 Node", "100 Node", "10 Node Double Batch", "100 Node Double Batch"]
 
-batch_unix_timestamp, batch_size = zip(*delivered_with_batch_size)
-batch_unix_timestamp_seconds = convert_to_seconds_from_start(batch_unix_timestamp)
+interval = 20
 
-# tps_unix_timestamp, tps_size = zip(*tps_calculation)
-# tps_unix_timestamp_seconds = convert_to_seconds_from_start(tps_unix_timestamp)
+for test_name, marker, colour, name in zip(tests, markers, colours, names):
+    print(test_name)
+    smooth_latency = list(load_tuple(test_name, "current_latency.json"))
 
-# Group and average latency and batch size data
-average_latency = group_and_average(
-    zip(latency_unix_timestamp_seconds, latency), interval
-)
-average_batch_size = group_and_average(
-    zip(batch_unix_timestamp_seconds, batch_size), interval
-)
-# average_tps = group_and_average(zip(tps_unix_timestamp_seconds, tps_size))
+    smooth_latency = [tuple(sublist) for sublist in smooth_latency]
 
-# print(average_tps)
+    delivered_with_batch_size = list(load_tuple(test_name, "delivered_latency.json"))
 
-# Extract data for plotting
-latency_unix_timestamp, latency = zip(*average_latency)
-batch_unix_timestamp, batch_size = zip(*average_batch_size)
-# tps_unix_timestamp, tps = zip(*average_tps)
+    delivered_with_batch_size = [
+        tuple(sublist) for sublist in delivered_with_batch_size
+    ]
 
-# Plotting
-plt.figure()
+    tps_timestamps = [x[0] for x in delivered_with_batch_size]
 
-# Plotting latency as a line graph on primary y-axis
-plt.plot(latency_unix_timestamp, latency, "b-", label="Latency")
+    times, tps = group_transactions(tps_timestamps, interval)
 
-# Plotting latency as a line graph on primary y-axis
-plt.plot(times, tps, "b--", label="TPS")
+    # Convert Unix timestamps to seconds from the start
+    latency_unix_timestamp, latency = zip(*smooth_latency)
+    latency_unix_timestamp_seconds = convert_to_seconds_from_start(
+        latency_unix_timestamp
+    )
 
-# Plotting batch size as a shaded area plot on primary y-axis
-plt.fill_between(
-    batch_unix_timestamp, 0, batch_size, color="green", alpha=0.3, label="Batch Size"
-)
+    batch_unix_timestamp, batch_size = zip(*delivered_with_batch_size)
+    batch_unix_timestamp_seconds = convert_to_seconds_from_start(batch_unix_timestamp)
+
+    # Group and average latency and batch size data
+    average_latency = group_and_average(
+        zip(latency_unix_timestamp_seconds, latency), interval
+    )
+    average_batch_size = group_and_average(
+        zip(batch_unix_timestamp_seconds, batch_size), interval
+    )
+
+    # Extract data for plotting
+    latency_unix_timestamp, latency = zip(*average_latency)
+    batch_unix_timestamp, batch_size = zip(*average_batch_size)
+
+    print(tps)
+    print(batch_size)
+
+    # Plotting latency as a line graph on primary y-axis
+    # plt.plot(latency_unix_timestamp, latency, "b-", label="Latency")
+
+    throughput = (
+        [t * b_size * 1 for t, b_size in zip(tps, batch_size)]
+        if test_name != "GOLD_DATA_LAPTOP_CCA"
+        else [t * 10 * 1 for t in tps]
+    )
+
+    # Plotting throughput as a line graph on primary y-axis
+    plt.plot(times, throughput, marker=marker, label=name, color=colour)
+
 
 plt.xlabel("Time (Seconds from Start)")
-plt.ylabel("Latency / Batch Size")
-plt.title("Latency and Batch Size over Time")
+plt.ylabel("Throughput (mb/s)")
+plt.title("10 Node and 100 Node Throughput")
 plt.legend()
 
 plt.show()
