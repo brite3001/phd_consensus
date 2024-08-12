@@ -776,21 +776,21 @@ class Node:
             self.command(s2p)
 
         # Step 3
+        ready_subscribe = self.select_nodes(
+            self.node_selection_type, self.at2_config.ready_sample_size
+        )
+
+        # Step 4
+        for peer_id in ready_subscribe:
+            s2p = SubscribeToPublisher(peer_id, batched_message_hash)
+            self.command(s2p)
+
+        # Step 5
         es = Echo(
             "EchoSubscribe",
             batched_message_hash,
             self._crypto_keys.ecdsa_public_key_tuple,
         )
-
-        # Step 4
-        ready_subscribe = self.select_nodes(
-            self.node_selection_type, self.at2_config.ready_sample_size
-        )
-
-        # Step 5
-        for peer_id in ready_subscribe:
-            s2p = SubscribeToPublisher(peer_id, batched_message_hash)
-            self.command(s2p)
 
         for peer_id in echo_subscribe:
             self.command(es, peer_id)

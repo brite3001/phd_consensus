@@ -69,8 +69,8 @@ def group_transactions(timestamps, interval=1):
 
 
 tests = [
-    "GOLD_DATA_LAPTOP_CCA",
-    "GOLD_DATA_SERVER_CCA",
+    "GOLD_DATA_LAPTOP",
+    "GOLD_DATA_SERVER",
     "GOLD_LAPTOP_DOUBLE_BATCH",
     "GOLD_SERVER_DOUBLE_BATCH",
 ]
@@ -79,7 +79,7 @@ markers = ["o", "s", "^", "d"]
 
 colours = ["red", "blue", "green", "magenta"]
 
-names = ["10 Node", "100 Node", "10 Node Double Batch", "100 Node Double Batch"]
+names = ["10 Node", "100 Node", "10 Node + PLATO", "100 Node + PLATO"]
 
 interval = 20
 
@@ -120,20 +120,34 @@ for test_name, marker, colour, name in zip(tests, markers, colours, names):
     latency_unix_timestamp, latency = zip(*average_latency)
     batch_unix_timestamp, batch_size = zip(*average_batch_size)
 
-    print(tps)
-    print(batch_size)
+    # print(len(tps))
+    # print(len(batch_size))
 
-    # Plotting latency as a line graph on primary y-axis
-    # plt.plot(latency_unix_timestamp, latency, "b-", label="Latency")
-
-    throughput = (
-        [t * b_size * 1 for t, b_size in zip(tps, batch_size)]
-        if test_name != "GOLD_DATA_LAPTOP_CCA"
-        else [t * 10 * 1 for t in tps]
-    )
-
-    # Plotting throughput as a line graph on primary y-axis
-    plt.plot(times, throughput, marker=marker, label=name, color=colour)
+    # Trim plots, some are really long.
+    if test_name == "GOLD_LAPTOP_DOUBLE_BATCH":
+        tps = tps[:-4]
+        batch_size = batch_size[:-5]
+        print(len(tps))
+        print(len(batch_size))
+        throughput = [t * b_size * 1 for t, b_size in zip(tps, batch_size)]
+        plt.plot(times[:-4], throughput, marker=marker, label=name, color=colour)
+    elif test_name == "GOLD_SERVER_DOUBLE_BATCH":
+        tps = tps[:-16]
+        batch_size = batch_size[:-17]
+        print(len(tps))
+        print(len(batch_size))
+        throughput = [t * b_size * 1 for t, b_size in zip(tps, batch_size)]
+        plt.plot(times[:-16], throughput, marker=marker, label=name, color=colour)
+    elif test_name == "GOLD_DATA_SERVER":
+        tps = tps[:-145]
+        batch_size = batch_size[:-146]
+        print(len(tps))
+        print(len(batch_size))
+        throughput = [t * b_size * 1 for t, b_size in zip(tps, batch_size)]
+        plt.plot(times[:-145], throughput, marker=marker, label=name, color=colour)
+    else:
+        throughput = [t * b_size * 1 for t, b_size in zip(tps, batch_size)]
+        plt.plot(times, throughput, marker=marker, label=name, color=colour)
 
 
 plt.xlabel("Time (Seconds from Start)")
