@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import os
 import matplotlib.markers as markers
 
+plt.rcParams["font.size"] = 18
+
 
 def mean_absolute_deviation(y, target):
     return np.mean(np.abs(np.array(y) - target))
@@ -56,11 +58,11 @@ def random_marker():
 
 def plot_simple_combined_average():
     rsi_tests = [
-        "graphs/rsi-savgol",
-        "graphs/rsi-ema",
-        "graphs/rsi-kalman-zlema",
-        "graphs/rsi-kama",
-        "graphs/rsi-sma",
+        "graphs/tsi-savgol",
+        "graphs/tsi-ema",
+        "graphs/tsi-kalman-zlema",
+        "graphs/tsi-kama",
+        "graphs/tsi-sma",
     ]
     savgol = []
     ema = []
@@ -69,13 +71,13 @@ def plot_simple_combined_average():
     sma = []
 
     for test in rsi_tests:
-        if test == "graphs/rsi-savgol":
+        if test == "graphs/tsi-savgol":
             savgol = np.array(load_floats(test, "avg.txt"))
-        elif test == "graphs/rsi-ema":
+        elif test == "graphs/tsi-ema":
             ema = np.array(load_floats(test, "avg.txt"))
-        elif test == "graphs/rsi-kalman-zlema":
+        elif test == "graphs/tsi-kalman-zlema":
             zlema = np.array(load_floats(test, "avg.txt"))
-        elif test == "graphs/rsi-kama":
+        elif test == "graphs/tsi-kama":
             kama = np.array(load_floats(test, "avg.txt"))
         else:
             sma = np.array(load_floats(test, "avg.txt"))
@@ -123,7 +125,7 @@ def plot_simple_combined_average():
     # Add labels, title, and legend
     plt.xlabel("Message Index")
     plt.ylabel("Latency (s)")
-    plt.title("Message Latency - RSI")
+    plt.title("Message Latency - TSI")
     plt.legend()
 
     plt.show()
@@ -195,11 +197,11 @@ def plot_simple_magnitude(data):
     # flatten
 
     rsi_tests = [
-        "graphs/tsi-savgol",
-        "graphs/tsi-ema",
-        "graphs/tsi-kalman-zlema",
-        "graphs/tsi-kama",
-        "graphs/tsi-sma",
+        "graphs/rsi-savgol",
+        "graphs/rsi-ema",
+        "graphs/rsi-kalman-zlema",
+        "graphs/rsi-kama",
+        "graphs/rsi-sma",
     ]
 
     # Set the time bin size (e.g., 60 seconds)
@@ -249,8 +251,8 @@ def plot_simple_magnitude(data):
 
     # Add labels and title
     plt.xlabel("Time (seconds)")
-    plt.ylabel("Average Message Size")
-    plt.title("Double Batching - TSI")
+    plt.ylabel("Average Transaction Size")
+    plt.title("Message Batching - RSI")
 
     plt.show()
 
@@ -401,7 +403,7 @@ sent, recv, deliv = load_ints(test, "sent_recv_deliv.txt")
 
 # plot_batched_message_magnitude(sent_metadata, test, sent, recv, deliv)
 
-plot_simple_magnitude(sent_metadata)
+# plot_simple_magnitude(sent_metadata)
 
 
-# plot_simple_combined_average()
+plot_simple_combined_average()

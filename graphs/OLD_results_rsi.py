@@ -1,16 +1,18 @@
 import matplotlib.pyplot as plt
 
+plt.rcParams["font.size"] = 14
+
 ##########################
 # CPU + EXECUTION TIME + MEMORY   #
 ##########################
 
 # Data for execution time + CPU time
 algorithms_exe_cpu = [
-    "RSI-SAVGOL",
-    "RSI-EMA",
-    "RSI-SMA",
-    "RSI-KAMA",
-    "RSI-KALMAN",
+    "SAVGOL",
+    "EMA",
+    "SMA",
+    "KAMA",
+    "KAL/ZEL",
 ]
 execution_times = [(1.79, 0.53), (1.83, 0.59), (1.85, 0.60), (2.03, 0.78), (8.76, 7.51)]
 
@@ -23,7 +25,7 @@ execution_times_sorted = [x[1][0] for x in sorted_exe_cpu_data]
 cpu_times_sorted = [x[1][1] for x in sorted_exe_cpu_data]
 
 # Data for memory usage
-algorithms_mem = ["RSI-KAMA", "RSI-SMA", "RSI-EMA", "RSI-KALMAN", "RSI-SAVGOL"]
+algorithms_mem = ["KAMA", "SMA", "EMA", "KAL/ZEL", "SAVGOL"]
 memory_usage = [256, 256, 384, 512, 2176]
 
 # Sort algorithms based on memory usage
@@ -41,9 +43,16 @@ plt.bar(
     execution_times_sorted,
     color="skyblue",
     label="Execution Time",
+    hatch="\\",
 )
-plt.bar(algorithms_sorted_exe_cpu, cpu_times_sorted, color="salmon", label="CPU Time")
-plt.title("Execution Time and CPU Time")
+plt.bar(
+    algorithms_sorted_exe_cpu,
+    cpu_times_sorted,
+    color="salmon",
+    label="CPU Time",
+    hatch="/",
+)
+plt.title("Runtime - RSI")
 plt.xlabel("Algorithms")
 plt.ylabel("Time (s)")
 plt.legend()
@@ -51,7 +60,7 @@ plt.legend()
 # Plotting memory usage
 plt.subplot(1, 2, 2)
 plt.bar(algorithms_sorted_mem, memory_usage_sorted, color="green")
-plt.title("Memory Usage")
+plt.title("Memory Usage - RSI")
 plt.xlabel("Algorithms")
 plt.ylabel("Memory Usage (KB)")
 
@@ -67,7 +76,7 @@ plt.show()
 
 
 # Data
-algorithms = ["RSI-SAVGOL", "RSI-KAMA", "RSI-KALMAN", "RSI-EMA", "RSI-SMA"]
+algorithms = ["SAVGOL", "KAMA", "KALMAN", "EMA", "SMA"]
 dropped_values = [28, 228, 346, 4143, 3126]
 
 # Sort algorithms based on the number of dropped values
@@ -91,7 +100,7 @@ plt.bar(positions, dropped_values_sorted, bar_width, color="salmon")
 # Adding labels and title
 plt.xlabel("Algorithms")
 plt.ylabel("Number of Dropped Messages")
-plt.title("Messages That didnt Reach Contagion Threshold")
+plt.title("Messages Failures - RSI")
 plt.xticks(positions, algorithms_sorted)
 
 # Show plot
@@ -123,14 +132,14 @@ plt.figure(figsize=(12, 6))
 # Plotting MAD
 plt.subplot(1, 2, 1)
 plt.bar(algorithms_sorted_mad, mad_values_sorted, color="skyblue")
-plt.title("Mean Absolute Deviation (MAD)")
+plt.title("Mean Absolute Deviation (MAD) - RSI")
 plt.xlabel("Algorithms")
 plt.ylabel("MAD")
 
 # Plotting RMSE
 plt.subplot(1, 2, 2)
 plt.bar(algorithms_sorted_rmse, rmse_values_sorted, color="salmon")
-plt.title("Root Mean Squared Error (RMSE)")
+plt.title("Root Mean Squared Error (RMSE) - RSI")
 plt.xlabel("Algorithms")
 plt.ylabel("RMSE")
 
