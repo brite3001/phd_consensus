@@ -4,7 +4,7 @@ import numpy as np
 plt.rcParams["font.size"] = 16
 
 # Data
-algorithms = ["SAVGOL", "KAMA", "KALMAN", "SMA", "EMA"]
+algorithms = ["SAVGOL", "KAMA", "KAL/ZEL", "SMA", "EMA"]
 mad_values = [6.21, 9.63, 15.34, 14.48, 16.75]
 tsi_values = [6.09, 6.95, 7.17, 5.71, 6.83]
 
