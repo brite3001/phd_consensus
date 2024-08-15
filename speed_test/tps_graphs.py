@@ -150,7 +150,7 @@ for test_name, marker, colour, name in zip(tests, markers, colours, names):
         plt.plot(times, throughput, marker=marker, label=name, color=colour)
 
 
-plt.xlabel("Time (Seconds from Start)")
+plt.xlabel("Time (s)")
 plt.ylabel("Throughput (mb/s)")
 plt.title("10 Node and 100 Node Throughput")
 plt.legend()
