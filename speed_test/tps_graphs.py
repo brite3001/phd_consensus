@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 import json
 
+plt.rcParams["font.size"] = 20
+
 
 def load_tuple(test_name: str, file_name: str) -> list:
     try:
