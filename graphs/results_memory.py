@@ -26,7 +26,7 @@ bar_width = 0.35
 plt.figure(figsize=(12, 6))
 
 # Plotting memory and tsi as grouped bars
-plt.bar(
+bars_memory = plt.bar(
     indices - bar_width / 2,
     memory_values_sorted,
     bar_width,
@@ -34,7 +34,7 @@ plt.bar(
     hatch="\\",
     label="RSI",
 )
-plt.bar(
+bars_tsi = plt.bar(
     indices + bar_width / 2,
     tsi_values_sorted,
     bar_width,
@@ -50,6 +50,14 @@ plt.title("Memory Usage")
 plt.xlabel("Algorithms")
 plt.ylabel("Memory Usage (KB)")
 plt.legend()
+
+# Adding bar labels
+for bars in [bars_memory, bars_tsi]:
+    for bar in bars:
+        yval = bar.get_height()
+        plt.text(
+            bar.get_x() + bar.get_width() / 2, yval, int(yval), ha="center", va="bottom"
+        )
 
 # Adjust layout
 plt.tight_layout()

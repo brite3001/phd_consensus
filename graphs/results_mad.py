@@ -25,8 +25,10 @@ bar_width = 0.35
 # Plotting
 plt.figure(figsize=(12, 6))
 
+ax = plt.gca()
+
 # Plotting MAD and tsi as grouped bars
-plt.bar(
+bars_mad = ax.bar(
     indices - bar_width / 2,
     mad_values_sorted,
     bar_width,
@@ -34,7 +36,7 @@ plt.bar(
     hatch="\\",
     label="RSI",
 )
-plt.bar(
+bars_tsi = ax.bar(
     indices + bar_width / 2,
     tsi_values_sorted,
     bar_width,
@@ -50,6 +52,10 @@ plt.title("Mean Absolute Deviation (MAD)")
 plt.xlabel("Algorithms")
 plt.ylabel("Values")
 plt.legend()
+
+# Add labels above each bar
+ax.bar_label(bars_mad, label_type="edge", padding=3)
+ax.bar_label(bars_tsi, label_type="edge", padding=3)
 
 # Adjust layout
 plt.tight_layout()

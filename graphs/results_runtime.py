@@ -24,26 +24,32 @@ algorithms_sorted_exe_cpu = [x[0] for x in sorted_exe_cpu_data]
 execution_times_sorted = [x[1][0] for x in sorted_exe_cpu_data]
 cpu_times_sorted = [x[1][1] for x in sorted_exe_cpu_data]
 
-
 # Plotting
 plt.figure(figsize=(12, 6))
 
 # Plotting execution time + CPU time
-plt.subplot(1, 2, 1)
-plt.bar(
+ax1 = plt.subplot(1, 2, 1)
+
+bars_exec_1 = ax1.bar(
     algorithms_sorted_exe_cpu,
     execution_times_sorted,
     color="skyblue",
     label="Execution Time",
     hatch="\\",
 )
-plt.bar(
+bars_cpu_1 = ax1.bar(
     algorithms_sorted_exe_cpu,
     cpu_times_sorted,
+    bottom=execution_times_sorted,
     color="salmon",
     label="CPU Time",
     hatch="/",
 )
+
+# Add labels to the top of each bar
+ax1.bar_label(bars_exec_1, label_type="center")
+ax1.bar_label(bars_cpu_1, label_type="edge")
+
 plt.title("Runtime - RSI")
 plt.xlabel("Algorithms")
 plt.ylabel("Time (s)")
@@ -60,21 +66,29 @@ algorithms_sorted_exe_cpu = [x[0] for x in sorted_exe_cpu_data]
 execution_times_sorted = [x[1][0] for x in sorted_exe_cpu_data]
 cpu_times_sorted = [x[1][1] for x in sorted_exe_cpu_data]
 
-plt.subplot(1, 2, 2)
-plt.bar(
+ax2 = plt.subplot(1, 2, 2)
+
+# Create the first set of bars
+bars_exec_2 = ax2.bar(
     algorithms_sorted_exe_cpu,
     execution_times_sorted,
     color="skyblue",
     label="Execution Time",
     hatch="\\",
 )
-plt.bar(
+bars_cpu_2 = ax2.bar(
     algorithms_sorted_exe_cpu,
     cpu_times_sorted,
+    bottom=execution_times_sorted,
     color="salmon",
     label="CPU Time",
     hatch="/",
 )
+
+# Add labels to the top of each bar
+ax2.bar_label(bars_exec_2, label_type="center")
+ax2.bar_label(bars_cpu_2, label_type="edge")
+
 plt.title("Runtime - TSI")
 plt.xlabel("Algorithms")
 plt.ylabel("Time (s)")

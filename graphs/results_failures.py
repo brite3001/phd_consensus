@@ -16,7 +16,7 @@ dropped_values_sorted_rsi = [x[1] for x in sorted_rsi]
 dropped_values_sorted_tsi = [x[1] for x in sorted_tsi]
 
 # Bar width
-bar_width = 0.6  # Increased bar width to 0.4 from 0.5
+bar_width = 0.6
 
 # Positions for the bars
 positions = range(len(algorithms_sorted))
@@ -24,11 +24,9 @@ positions = range(len(algorithms_sorted))
 # Create a figure and axis
 fig, ax = plt.subplots()
 
-# Plotting the first set of bars
-ax.bar(
-    [
-        x - bar_width / 4 for x in positions
-    ],  # Adjusted position to make bars side by side
+# Plotting the first set of bars (RSI)
+bars_rsi = ax.bar(
+    [x - bar_width / 4 for x in positions],
     dropped_values_sorted_rsi,
     bar_width / 2,
     color="skyblue",
@@ -36,11 +34,9 @@ ax.bar(
     hatch="\\",
 )
 
-# Plotting the second set of bars
-ax.bar(
-    [
-        x + bar_width / 4 for x in positions
-    ],  # Adjusted position to make bars side by side
+# Plotting the second set of bars (TSI)
+bars_tsi = ax.bar(
+    [x + bar_width / 4 for x in positions],
     dropped_values_sorted_tsi,
     bar_width / 2,
     color="salmon",
@@ -55,6 +51,10 @@ ax.set_title("Gossip Failures")
 ax.set_xticks(positions)
 ax.set_xticklabels(algorithms_sorted)
 ax.legend()
+
+# Add bar labels
+ax.bar_label(bars_rsi, label_type="edge")  # Center-aligned labels for RSI bars
+ax.bar_label(bars_tsi, label_type="edge")  # Edge-aligned labels for TSI bars
 
 # Show plot
 plt.show()
