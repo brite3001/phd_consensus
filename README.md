@@ -26,12 +26,11 @@ This branch contains the dockerised version of RACER. Docker allows each node to
 
 # Installation
 1. Make sure you have docker installed: https://docs.docker.com/get-started/get-docker/
-2. Open a terminal and `cd` to RACERs root directory
-3. Open `make_compose_file.py` and specify the number of nodes (I'd start with 10)
-4. Run `docker build -t consensus .` 
-5. Run `docker compose up`
-
-Remember, when making any code changes, make sure to re-run `docker build -t consensus .` before running `docker compose up`, or else changes won't be applied to the container.
+2. `git clone https://github.com/brite3001/phd_consensus.git`
+3. `cd phd_consensus`
+4. Open `make_compose_file.py` and specify the number of nodes (I'd start with 10)
+5. Run `docker build -t consensus .` 
+6. Run `docker compose up`
 
 # Interpreting Logs
 RACERS logs can be very noisy due to all the different nodes running in parallel. Here are some different log levels, and how to interpret them.
@@ -64,6 +63,8 @@ This level of logging spams logs to the console, as its now printing protocol me
 `Received ReadyResponse for 9014494830268039963 from 6942964365` which show invidiual protocol messages being passed around to nodes as part of RACER's broadcast protocol implementation.
 
 # What values can I change to test RACER?
+Remember, when making any code changes, make sure to re-run `docker build -t consensus .` before running `docker compose up`, or else changes won't be applied to the container.
+
 Unfortunatley RACERs source code is not well documented. Here are some values you can easily adjust:
 
 ## src/main.py
