@@ -65,7 +65,7 @@ This level of logging spams logs to the console, as its now printing protocol me
 # What values can I change to test RACER?
 Remember, when making any code changes, make sure to re-run `docker build -t consensus .` before running `docker compose up`, or else changes won't be applied to the container.
 
-Unfortunatley RACERs source code is not well documented. Here are some values you can easily adjust:
+Unfortunatley RACERs source code is not well documented. However, here are some values you can easily adjust:
 
 ## src/main.py
 - On line 76 you can change the padding size of messages
