@@ -105,13 +105,12 @@ class Node:
     running: bool = field(factory=bool)
 
     # Tuneable Values
-    target_latency: int = 2.5
-    target_publishing_frequency = 2.5
-    max_publishing_frequency = 10
-    minimum_latency: int = 1
-    max_gossip_timeout_time = 60
-    max_response_delay_time = 5
-    node_selection_type = "normal"
+    target_latency: int = 2.5  # target latency for data messages. PLATO attempts to keep latency around this value.
+    target_publishing_frequency = 2.5  # target publishing frequency. PLATO attempts to keep publishing around this value
+    max_publishing_frequency = 10  # maximum publishing frequency in seconds
+    minimum_latency: int = 1  # minimum latency in seconds for data messages
+    max_gossip_timeout_time = 60  # how long before a gossip is terminated? Failed Gossip recalling and re-broadcasting not implemented.
+    node_selection_type = "normal"  # can choose 'poisson' 'normal' or 'random'
 
     # Congestion control
     scheduler = field(init=False)
@@ -385,7 +384,7 @@ class Node:
                     if message_type == "EchoResponse":
                         sig_check = message.verify_echo_response(echo_sig)
                         publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
-                        self.my_logger.debug(
+                        self.my_logger.info(
                             f"Received EchoResponse for {message.topic} from {publisher}"
                         )
                         if sig_check:
@@ -397,7 +396,7 @@ class Node:
                     elif message_type == "ReadyResponse":
                         sig_check = message.verify_echo_response(echo_sig)
                         publisher = self._crypto_keys.ecdsa_tuple_to_id(message.creator)
-                        self.my_logger.debug(
+                        self.my_logger.info(
                             f"Received ReadyResponse for {message.topic} from {publisher}"
                         )
                         if sig_check:

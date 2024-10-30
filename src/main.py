@@ -74,9 +74,6 @@ async def main():
     await asyncio.sleep(5)
 
     pad = 10**935
-    # ###########
-    # # Fast    #
-    # ###########
     for i in range(1, 1000):
         # Randomize the process of sending commands with a certain probability
         if random.random() < 0.5:  # Adjust probability as needed
@@ -89,19 +86,19 @@ async def main():
 
         await asyncio.sleep(random.randint(1, 2))
 
-    this_node.scheduler.pause_job(this_node.increase_job_id)
-    this_node.scheduler.pause_job(this_node.decrease_job_id)
+    # this_node.scheduler.pause_job(this_node.increase_job_id)
+    # this_node.scheduler.pause_job(this_node.decrease_job_id)
 
-    await asyncio.sleep(15)
+    # await asyncio.sleep(15)
 
-    url = "http://localhost:8000/current_latency/"
-    r = requests.post(url, json={"data": this_node.current_latency_metadata})
-    print(r.status_code)
+    # url = "http://localhost:8000/current_latency/"
+    # r = requests.post(url, json={"data": this_node.current_latency_metadata})
+    # print(r.status_code)
 
-    url = "http://localhost:8000/delivered_latency/"
-    print(this_node.delivered_msg_metadata)
-    r = requests.post(url, json={"data": this_node.delivered_msg_metadata})
-    print(r.status_code)
+    # url = "http://localhost:8000/delivered_latency/"
+    # print(this_node.delivered_msg_metadata)
+    # r = requests.post(url, json={"data": this_node.delivered_msg_metadata})
+    # print(r.status_code)
 
 
 async def shutdown(signal, loop):
